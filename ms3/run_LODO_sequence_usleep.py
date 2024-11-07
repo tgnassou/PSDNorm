@@ -11,10 +11,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 from torch.optim.lr_scheduler import CosineAnnealingLR, ChainedScheduler, LinearLR
-from skorch.callbacks import EarlyStopping, EpochScoring, LRScheduler
+from skorch.callbacks import EarlyStopping, EpochScoring, LRScheduler, Callback
 from skorch.helper import predefined_split
 from skorch.dataset import Dataset
 from numbers import Integral
+from braindecode.samplers import RecordingSampler
 
 from monge_alignment.utils import MongeAlignment
 
@@ -22,12 +23,15 @@ from typing import Iterable
 
 import torch
 from torch import nn
+
 # import DAtaloader
 from tqdm import tqdm
 
 import pandas as pd
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
+torch.set_num_threads(1)
+
 
 class SequenceDataset(Dataset):
     def __init__(self, X, y, subject_ids, domains, target_transform=None):
@@ -43,7 +47,7 @@ class SequenceDataset(Dataset):
                 "target": self.y,
                 "subject": self.subject_ids,
                 "run": self.domains,
-                "i_window_in_trial": np.zeros(len(self.y)),
+                "i_window_in_trial": np.arange(len(self.y)),
                 "i_start_in_trial": np.zeros(len(self.y)),
                 "i_stop_in_trial": 3000 * np.ones(len(self.y)),
             }
@@ -97,7 +101,7 @@ dataset_names = [
 ]
 
 data_dict = {}
-max_subjects = 50
+max_subjects = 100
 for dataset_name in dataset_names:
     subject_ids_ = np.load(f"data/{dataset_name}/subject_ids.npy")
     X_ = []
@@ -111,28 +115,30 @@ for dataset_name in dataset_names:
             break
     data_dict[dataset_name] = [X_, y_, subject_selected]
 
+
 # %%
 module_name = "usleep"
 n_windows = 35
 n_windows_stride = 10
-max_epochs = 300
+max_epochs = 20
 batch_size = 64
-patience = 30
-n_jobs = 10
+patience = 50
+n_jobs = 1
 seed = 42
 lr = 1e-3
 weight = "unbalanced"
-
+use_scheduler = False
 
 scaling = "None"
 results_path = (
-f"results/pickle/results_LODO_sequence_{module_name}_{scaling}_"
-f"{len(dataset_names)}_dataset_with_{max_subjects}_subjects_{weight}.pkl"
+    f"results/pickle/results_usleep_{scaling}_"
+    f"{len(dataset_names)}_dataset_with_{max_subjects}"
+    f"_subjects_scheduler_{use_scheduler}_lr_{lr}.pkl"
 )
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 rng = check_random_state(seed)
-dataset_target = "MASS"
+dataset_target = "ABC"
 # for dataset_target in dataset_names:
 X_target, y_target, subject_ids_target = data_dict[dataset_target]
 X_train, X_val, y_train, y_val = (
@@ -154,9 +160,7 @@ for dataset_source in dataset_names:
             y_val_,
             subjects_train_,
             subjects_val_,
-        ) = train_test_split(
-            X_, y_, subjects_, test_size=valid_size
-        )
+        ) = train_test_split(X_, y_, subjects_, test_size=valid_size)
 
         X_train += X_train_
         X_val += X_val_
@@ -166,10 +170,7 @@ for dataset_source in dataset_names:
         subjects_val += subjects_val_
         domain_train += [dataset_source] * len(X_train_)
         domain_val += [dataset_source] * len(X_val_)
-        print(
-            f"Dataset {dataset_source}: {len(X_train_)}"
-            f" train, {len(X_val_)} val"
-        )
+        print(f"Dataset {dataset_source}: {len(X_train_)}" f" train, {len(X_val_)} val")
 
 if scaling == "subject":
     ma = MongeAlignment(n_jobs=n_jobs)
@@ -180,42 +181,44 @@ if scaling == "subject":
 
 # %%
 
-domains =  np.concatenate([[domain_train[i]] * len(X_train[i]) for i in range(len(domain_train))])
-subjects = np.concatenate([[subjects_train[i]] * len(X_train[i]) for i in range(len(subjects_train))])
-dataset = SequenceDataset(np.concatenate(X_train, axis=0), np.concatenate(y_train, axis=0), subjects, domains)
+domains = np.concatenate(
+    [[domain_train[i]] * len(X_train[i]) for i in range(len(domain_train))]
+)
+subjects = np.concatenate(
+    [[subjects_train[i]] * len(X_train[i]) for i in range(len(subjects_train))]
+)
+dataset = SequenceDataset(
+    np.concatenate(X_train, axis=0), np.concatenate(y_train, axis=0), subjects, domains
+)
 # %%
-domains_val =  np.concatenate([[domain_val[i]] * len(X_val[i]) for i in range(len(domain_val))])
-subjects_val_ = np.concatenate([[subjects_val[i]] * len(X_val[i]) for i in range(len(subjects_val))])
-dataset_val = SequenceDataset(np.concatenate(X_val, axis=0), np.concatenate(y_val, axis=0), subjects_val_, domains_val)
+domains_val = np.concatenate(
+    [[domain_val[i]] * len(X_val[i]) for i in range(len(domain_val))]
+)
+subjects_val_ = np.concatenate(
+    [[subjects_val[i]] * len(X_val[i]) for i in range(len(subjects_val))]
+)
+dataset_val = SequenceDataset(
+    np.concatenate(X_val, axis=0),
+    np.concatenate(y_val, axis=0),
+    subjects_val_,
+    domains_val,
+)
 
 n_chans, n_time = X_train[0][0].shape
 n_classes = len(np.unique(y_train[0]))
 # %%
 
 train_sampler = SequenceSampler(
-    dataset.metadata, n_windows, n_windows_stride, random_state=seed, randomize=True
+    dataset.metadata, n_windows, n_windows_stride, random_state=seed, randomize=False
 )
+
 # %%
 
-valid_sampler = SequenceSampler(dataset_val.metadata, n_windows, n_windows_stride, randomize=False)
-
-# Use label of center window in the sequence
-# def get_center_labels(x):
-#     if isinstance(x, Integral):
-#         return x
-#     return x[12:24]
-
-# dataset.target_transform = get_center_labels
-# dataset_val.target_transform = get_center_labels
-# %%
+valid_sampler = SequenceSampler(
+    dataset_val.metadata, n_windows, n_windows_stride, randomize=False
+)
 
 in_chans, input_size_samples = dataset[0][0].shape
-
-# class USleepCenter(USleep):
-#     def forward(self, x):
-#         output = super().forward(x)
-#         output = output[:, :, 12:24]
-#         return output
 
 model = USleep(
     n_chans=in_chans,
@@ -246,10 +249,17 @@ warmup_epochs = 10
 
 # Chained Scheduler
 def scheduler(optimizer, last_epoch):
-    return ChainedScheduler([
-        LinearLR(optimizer, start_factor=0.3333, end_factor=1.0, total_iters=warmup_epochs),
-        CosineAnnealingLR(optimizer, T_max=max_epochs-1, eta_min=lr/10),
-    ])
+    return ChainedScheduler(
+        [
+            LinearLR(
+                optimizer,
+                start_factor=0.3333,
+                end_factor=1.0,
+                total_iters=warmup_epochs,
+            ),
+            CosineAnnealingLR(optimizer, T_max=max_epochs - 1, eta_min=lr / 10),
+        ]
+    )
 
 
 callbacks = [
@@ -264,10 +274,26 @@ callbacks = [
             lower_is_better=True,
         ),
     ),
-    (
-        "lr_scheduler", LRScheduler(scheduler)
-    ),
 ]
+if use_scheduler:
+    callbacks = [
+        ("train_acc_multi", train_acc),
+        ("valid_acc_multi", valid_acc),
+        (
+            "early_stopping",
+            EarlyStopping(
+                monitor="valid_loss",
+                patience=patience,
+                load_best=True,
+                lower_is_better=True,
+            )
+        ),
+        (
+            "lr_scheduler", LRScheduler(scheduler)
+        )
+    ]
+
+print(callbacks)
 
 clf = EEGClassifier(
     module=model,
@@ -288,15 +314,68 @@ clf.set_params(callbacks__valid_acc=None)
 
 clf.fit(dataset, y=None)
 
+
+# %%
+module = clf.module_
+score_train = []
+for i in range(len(X_train)):
+    X = X_train[i]
+    y = y_train[i]
+
+    y_pred = (
+        module(torch.tensor(X, dtype=torch.float32).to(device))
+        .detach()
+        .cpu()
+        .argmax(axis=1)
+    )
+
+    score_train.append(accuracy_score(y, y_pred))
+
+print(f"Train accuracy: {np.mean(score_train)}")
+
+score_val = []
+for i in range(len(X_val)):
+    X = X_val[i]
+    y = y_val[i]
+
+    y_pred = (
+        module(torch.tensor(X, dtype=torch.float32).to(device))
+        .detach()
+        .cpu()
+        .argmax(axis=1)
+    )
+
+    score_val.append(accuracy_score(y, y_pred))
+
+print(f"Validation accuracy: {np.mean(score_val)}")
+
+score_target = []
+for i in range(len(X_target)):
+    X = X_target[i]
+    y = y_target[i]
+
+    y_pred = (
+        module(torch.tensor(X, dtype=torch.float32).to(device))
+        .detach()
+        .cpu()
+        .argmax(axis=1)
+    )
+
+    score_target.append(accuracy_score(y, y_pred))
+
+print(f"Target accuracy: {np.mean(score_target)}")
+
+# %%
 n_target = len(X_target)
 results = []
-# %%
 for n_subj in range(n_target):
     X_t = X_target[n_subj]
     y_t = y_target[n_subj]
     subject = subject_ids_target[n_subj]
 
-    y_pred_ = clf.module_(torch.tensor(X_t, dtype=torch.float32).to(device)).cpu().detach().numpy().argmax(axis=1)
+    y_pred = clf.module_(
+        torch.tensor(X_t, dtype=torch.float32).to(device)
+    ).cpu().detach().numpy().argmax(axis=1)
     # %%
     results.append(
         {
@@ -304,12 +383,13 @@ for n_subj in range(n_target):
             "subject": n_subj,
             "seed": seed,
             "dataset_t": dataset_target,
-            "y_target": y_t
+            "y_target": y_t,
             "y_pred": y_pred,
             "scaling": scaling,
             "weight": weight,
             "n_windows": n_windows,
             "n_windows_stride": n_windows_stride,
+            "lr": lr,
         }
     )
 # %%
