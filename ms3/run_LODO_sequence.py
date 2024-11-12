@@ -65,7 +65,7 @@ class dataset_sequence(Dataset):
         return item
 
 
-class SequenceSampler(RecordingSampler):
+class DomainAwareSequenceSampler(RecordingSampler):
     """Sample sequences of consecutive windows.
 
     Parameters

@@ -293,6 +293,8 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
         window_vals = torch.ones(nperseg, device=signal.device)
     else:
         raise ValueError("Unsupported window type")
+
+    scaling = (window_vals * window_vals).sum()
     # Calculate step size and number of segments along the last axis
     step = nperseg - noverlap
     num_segments = (signal.shape[-1] - noverlap) // step
@@ -312,7 +314,7 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
         windowed_segment = segment * window_vals
         # Compute the FFT and PSD for the segment along the last axis
         segment_fft = torch.fft.rfft(windowed_segment, dim=-1)
-        segment_psd = torch.abs(segment_fft) ** 2  / (fs * nperseg)
+        segment_psd = torch.abs(segment_fft) ** 2 / (fs * scaling)
         if nperseg % 2:
             segment_psd[..., 1:] *= 2
         else:
@@ -387,7 +389,7 @@ class TMANorm(nn.Module):
 
 # %%
 filter_size = 128
-psd = welch_psd(X_flatten, window=None, nperseg=filter_size)[1]
+psd = welch_psd(X_flatten, window="hann", nperseg=filter_size)[1]
 weights = torch.ones_like(psd) / psd.shape[-1]
 new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
 D = torch.sqrt(new_barycenter) / torch.sqrt(psd)
@@ -416,7 +418,7 @@ X_numpy = X_flatten.cpu().numpy()
 # use psd of numpy
 import scipy.signal as signal
 
-psd_numpy = signal.welch(X_numpy, nperseg=filter_size, axis=-1, window="boxcar")[1]
+psd_numpy = signal.welch(X_numpy, nperseg=filter_size, axis=-1, window="hann")[1]
 barycenter_numpy = np.mean(np.sqrt(psd_numpy), axis=0) ** 2
 D_numpy = np.sqrt(barycenter_numpy) / np.sqrt(psd_numpy)
 H_numpy = np.fft.irfft(D_numpy)

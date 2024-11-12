@@ -29,7 +29,7 @@ from tqdm import tqdm
 
 import pandas as pd
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 torch.set_num_threads(1)
 
 
@@ -81,9 +81,10 @@ class SequenceDataset(Dataset):
 
 def accuracy_multi(model, X, y):
     y_pred = model.predict(X)
-    # y_pred = y_pred[:, 12:24]
-    # y = y[:, 12:24]
-    return accuracy_score(y.flatten(), y_pred.flatten())
+    acc = []
+    for i in range(len(y)):
+        acc.append(accuracy_score(y[i], y_pred[i]))
+    return np.mean(acc)
 
 
 # %%
@@ -92,16 +93,16 @@ dataset_names = [
     "CHAT",
     "CFS",
     "SHHS",
-    "HOMEPAP",
-    "CCSHS",
-    "MASS",
-    "Physionet",
-    "SOF",
-    "MROS",
+    # "HOMEPAP",
+    # "CCSHS",
+    # "MASS",
+    # "Physionet",
+    # "SOF",
+    # "MROS",
 ]
 
 data_dict = {}
-max_subjects = 100
+max_subjects = 3
 for dataset_name in dataset_names:
     subject_ids_ = np.load(f"data/{dataset_name}/subject_ids.npy")
     X_ = []
@@ -120,9 +121,9 @@ for dataset_name in dataset_names:
 module_name = "usleep"
 n_windows = 35
 n_windows_stride = 10
-max_epochs = 20
+max_epochs = 200
 batch_size = 64
-patience = 50
+patience = 30
 n_jobs = 1
 seed = 42
 lr = 1e-3
@@ -138,7 +139,7 @@ results_path = (
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 rng = check_random_state(seed)
-dataset_target = "ABC"
+dataset_target = "CHAT"
 # for dataset_target in dataset_names:
 X_target, y_target, subject_ids_target = data_dict[dataset_target]
 X_train, X_val, y_train, y_val = (
@@ -265,15 +266,15 @@ def scheduler(optimizer, last_epoch):
 callbacks = [
     ("train_acc_multi", train_acc),
     ("valid_acc_multi", valid_acc),
-    (
-        "early_stopping",
-        EarlyStopping(
-            monitor="valid_loss",
-            patience=patience,
-            load_best=True,
-            lower_is_better=True,
-        ),
-    ),
+    # (
+    #     "early_stopping",
+    #     EarlyStopping(
+    #         monitor="valid_loss",
+    #         patience=patience,
+    #         load_best=True,
+    #         lower_is_better=True,
+    #     ),
+    # ),
 ]
 if use_scheduler:
     callbacks = [
@@ -366,36 +367,78 @@ for i in range(len(X_target)):
 print(f"Target accuracy: {np.mean(score_target)}")
 
 # %%
-n_target = len(X_target)
-results = []
-for n_subj in range(n_target):
-    X_t = X_target[n_subj]
-    y_t = y_target[n_subj]
-    subject = subject_ids_target[n_subj]
+# create dataloader
+from torch.utils.data import DataLoader
 
-    y_pred = clf.module_(
-        torch.tensor(X_t, dtype=torch.float32).to(device)
-    ).cpu().detach().numpy().argmax(axis=1)
-    # %%
-    results.append(
-        {
-            "module": module_name,
-            "subject": n_subj,
-            "seed": seed,
-            "dataset_t": dataset_target,
-            "y_target": y_t,
-            "y_pred": y_pred,
-            "scaling": scaling,
-            "weight": weight,
-            "n_windows": n_windows,
-            "n_windows_stride": n_windows_stride,
-            "lr": lr,
-        }
-    )
+dataloader = DataLoader(
+    dataset,
+    batch_size=64,
+    sampler=train_sampler,
+    num_workers=0,
+    pin_memory=True,
+    drop_last=True,
+)
+
 # %%
-try:
-    df_results = pd.read_pickle(results_path)
-except FileNotFoundError:
-    df_results = pd.DataFrame()
-df_results = pd.concat((df_results, pd.DataFrame(results)))
-df_results.to_pickle(results_path)
+# get the first batch
+loss = []
+accuracy = []
+criterion = nn.CrossEntropyLoss()
+for i, (X, y) in enumerate(dataloader):
+    X = X.to(device)
+    y = y.to(device)
+    output = module(X)
+    y_pred = output.argmax(axis=1)
+    loss.append(criterion(output, y).item())
+    accuracy.append((y == y_pred).float().mean().item())
+print(np.mean(loss))
+print(np.mean(accuracy))
+
+# %%
+# get the output of the model
+
+output = module(X)
+
+# %%
+criterion = nn.CrossEntropyLoss()
+loss = criterion(output, y)
+import ipdb; ipdb.set_trace()
+# %% save mdule
+
+# torch.save(module, f"results/models/{module_name}_{dataset_target}.pt")
+# # %%
+# n_target = len(X_target)
+# results = []
+# for n_subj in range(n_target):
+#     X_t = X_target[n_subj]
+#     y_t = y_target[n_subj]
+#     subject = subject_ids_target[n_subj]
+
+#     y_pred = clf.module_(
+#         torch.tensor(X_t, dtype=torch.float32).to(device)
+#     ).cpu().detach().numpy().argmax(axis=1)
+#     # %%
+#     results.append(
+#         {
+#             "module": module_name,
+#             "subject": n_subj,
+#             "seed": seed,
+#             "dataset_t": dataset_target,
+#             "y_target": y_t,
+#             "y_pred": y_pred,
+#             "scaling": scaling,
+#             "weight": weight,
+#             "n_windows": n_windows,
+#             "n_windows_stride": n_windows_stride,
+#             "lr": lr,
+#         }
+#     )
+# # %%
+# try:
+#     df_results = pd.read_pickle(results_path)
+# %%
+
+# except FileNotFoundError:
+#     df_results = pd.DataFrame()
+# df_results = pd.concat((df_results, pd.DataFrame(results)))
+# df_results.to_pickle(results_path)
