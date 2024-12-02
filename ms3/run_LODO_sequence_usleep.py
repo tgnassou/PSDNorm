@@ -81,11 +81,13 @@ class SequenceDataset(Dataset):
 
 def accuracy_multi(model, X, y):
     y_pred = model.predict(X)
-    acc = []
-    for i in range(len(y)):
-        acc.append(accuracy_score(y[i], y_pred[i]))
-    return np.mean(acc)
+    acc = (y_pred == y).mean()
+    return acc
 
+# def accuracy_multi(model, X, y):
+#     y_pred = model.predict(X)
+#     acc = accuracy_score(y.flatten(), y_pred.flatten())
+#     return acc
 
 # %%
 dataset_names = [
@@ -102,7 +104,7 @@ dataset_names = [
 ]
 
 data_dict = {}
-max_subjects = 3
+max_subjects = 2
 for dataset_name in dataset_names:
     subject_ids_ = np.load(f"data/{dataset_name}/subject_ids.npy")
     X_ = []
@@ -139,7 +141,7 @@ results_path = (
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 rng = check_random_state(seed)
-dataset_target = "CHAT"
+dataset_target = "ABC"
 # for dataset_target in dataset_names:
 X_target, y_target, subject_ids_target = data_dict[dataset_target]
 X_train, X_val, y_train, y_val = (
@@ -210,7 +212,7 @@ n_classes = len(np.unique(y_train[0]))
 # %%
 
 train_sampler = SequenceSampler(
-    dataset.metadata, n_windows, n_windows_stride, random_state=seed, randomize=False
+    dataset.metadata, n_windows, n_windows_stride, random_state=seed, randomize=True
 )
 
 # %%
@@ -318,53 +320,55 @@ clf.fit(dataset, y=None)
 
 # %%
 module = clf.module_
-score_train = []
-for i in range(len(X_train)):
-    X = X_train[i]
-    y = y_train[i]
+module.eval()
+with torch.no_grad():
+    score_train = []
+    for i in range(len(X_train)):
+        X = X_train[i]
+        y = y_train[i]
 
-    y_pred = (
-        module(torch.tensor(X, dtype=torch.float32).to(device))
-        .detach()
-        .cpu()
-        .argmax(axis=1)
-    )
+        y_pred = (
+            module(torch.tensor(X, dtype=torch.float32).to(device))
+            .detach()
+            .cpu()
+            .argmax(axis=1)
+        )
 
-    score_train.append(accuracy_score(y, y_pred))
+        score_train.append(accuracy_score(y, y_pred))
 
-print(f"Train accuracy: {np.mean(score_train)}")
+    print(f"Train accuracy: {np.mean(score_train)}")
 
-score_val = []
-for i in range(len(X_val)):
-    X = X_val[i]
-    y = y_val[i]
+    score_val = []
+    for i in range(len(X_val)):
+        X = X_val[i]
+        y = y_val[i]
 
-    y_pred = (
-        module(torch.tensor(X, dtype=torch.float32).to(device))
-        .detach()
-        .cpu()
-        .argmax(axis=1)
-    )
+        y_pred = (
+            module(torch.tensor(X, dtype=torch.float32).to(device))
+            .detach()
+            .cpu()
+            .argmax(axis=1)
+        )
 
-    score_val.append(accuracy_score(y, y_pred))
+        score_val.append(accuracy_score(y, y_pred))
 
-print(f"Validation accuracy: {np.mean(score_val)}")
+    print(f"Validation accuracy: {np.mean(score_val)}")
 
-score_target = []
-for i in range(len(X_target)):
-    X = X_target[i]
-    y = y_target[i]
+    score_target = []
+    for i in range(len(X_target)):
+        X = X_target[i]
+        y = y_target[i]
 
-    y_pred = (
-        module(torch.tensor(X, dtype=torch.float32).to(device))
-        .detach()
-        .cpu()
-        .argmax(axis=1)
-    )
+        y_pred = (
+            module(torch.tensor(X, dtype=torch.float32).to(device))
+            .detach()
+            .cpu()
+            .argmax(axis=1)
+        )
 
-    score_target.append(accuracy_score(y, y_pred))
+        score_target.append(accuracy_score(y, y_pred))
 
-print(f"Target accuracy: {np.mean(score_target)}")
+    print(f"Target accuracy: {np.mean(score_target)}")
 
 # %%
 # create dataloader
@@ -384,25 +388,31 @@ dataloader = DataLoader(
 loss = []
 accuracy = []
 criterion = nn.CrossEntropyLoss()
-for i, (X, y) in enumerate(dataloader):
-    X = X.to(device)
-    y = y.to(device)
-    output = module(X)
-    y_pred = output.argmax(axis=1)
-    loss.append(criterion(output, y).item())
-    accuracy.append((y == y_pred).float().mean().item())
-print(np.mean(loss))
-print(np.mean(accuracy))
+module.eval()
+with torch.no_grad():
 
-# %%
-# get the output of the model
+    loss = np.zeros(len(dataloader))
+    y_pred_all, y_true_all = list(), list()
+    for i, (batch_X, batch_y) in enumerate(dataloader):
+        batch_X = batch_X.to(device)
+        batch_y = batch_y.to(device)
+        output = module(batch_X)
 
-output = module(X)
+        loss_batch = criterion(output, batch_y)
 
-# %%
-criterion = nn.CrossEntropyLoss()
-loss = criterion(output, y)
-import ipdb; ipdb.set_trace()
+        y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
+        y_true_all.append(batch_y.cpu().detach().numpy())
+        loss[i] = loss_batch.item()
+
+    y_pred = np.concatenate(y_pred_all)
+    y_true = np.concatenate(y_true_all)
+    perf = accuracy_score(y_true.flatten(), y_pred.flatten())
+    perf_2 = (y_pred == y_true).mean()
+
+    print(f"Validation loss: {loss.mean()}")
+    print(f"Validation accuracy: {perf}")
+    print(f"Validation accuracy 2: {perf_2}")
+
 # %% save mdule
 
 # torch.save(module, f"results/models/{module_name}_{dataset_target}.pt")
