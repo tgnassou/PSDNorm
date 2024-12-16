@@ -1,36 +1,22 @@
 import torch
 from torch import nn
 import torch.fft
+import time as time
+import torch
 
 
 def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axis=-1):
-    """
-    Compute the Power Spectral Density (PSD) of a signal using Welch's method along a specified axis.
-
-    Parameters:
-    - signal (torch.Tensor): Tensor of the input signal (can be multi-dimensional).
-    - fs (float): Sampling frequency of the signal.
-    - nperseg (int): Length of each segment.
-    - noverlap (int): Number of points to overlap between segments.
-    - window (str): Window function to apply on each segment.
-    - axis (int): Axis along which to compute the PSD.
-
-    Returns:
-    - freqs (torch.Tensor): Array of sample frequencies.
-    - psd (torch.Tensor): Power spectral density of each frequency component along the specified axis.
-    """
     if nperseg is None:
         nperseg = 256
     if noverlap is None:
         noverlap = nperseg // 2
+
     # Move the specified axis to the last dimension for easier processing
     signal = signal.transpose(axis, -1)
 
     # Define the window function
     if window == "hamming":
-        window_vals = torch.hamming_window(
-            nperseg, periodic=False, device=signal.device
-        )
+        window_vals = torch.hamming_window(nperseg, periodic=False, device=signal.device)
     elif window == "hann":
         window_vals = torch.hann_window(nperseg, periodic=False, device=signal.device)
     elif window is None:
@@ -39,57 +25,56 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
         raise ValueError("Unsupported window type")
 
     scaling = (window_vals * window_vals).sum()
-    # Calculate step size and number of segments along the last axis
+
+    # Calculate step size and number of segments
     step = nperseg - noverlap
     num_segments = (signal.shape[-1] - noverlap) // step
 
-    # Pre-allocate array for the PSD, retaining all other dimensions
-    psd_sum = torch.zeros(*signal.shape[:-1], nperseg // 2 + 1, device=signal.device)
+    # Generate indices for all segments in one batch operation
+    indices = torch.arange(nperseg, device=signal.device).unsqueeze(0) + step * torch.arange(num_segments, device=signal.device).unsqueeze(1)
 
-    # Iterate over segments along the last axis
-    for i in range(num_segments):
-        # Extract the segment
-        segment = signal[..., i * step : i * step + nperseg]
+    # Extract and process all segments in one batch
+    segments = signal[..., indices]  # Shape: (..., num_segments, nperseg)
+    segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
+    windowed_segments = segments * window_vals  # Apply window
 
-        # detrend
-        segment = segment - torch.mean(segment, axis=-1, keepdim=True)
+    # Compute FFT for all segments in parallel
+    segment_fft = torch.fft.rfft(windowed_segments, dim=-1)
+    segment_psd = torch.abs(segment_fft) ** 2 / (fs * scaling)
 
-        # Apply window function
-        windowed_segment = segment * window_vals
-        # Compute the FFT and PSD for the segment along the last axis
-        segment_fft = torch.fft.rfft(windowed_segment, dim=-1)
-        segment_psd = torch.abs(segment_fft) ** 2 / (fs * scaling)
-        if nperseg % 2:
-            segment_psd[..., 1:] *= 2
-        else:
-            segment_psd[..., 1:-1] *= 2
-        # Accumulate PSDs from each segment
-        psd_sum += segment_psd
+    # Adjust for one-sided spectrum
+    if nperseg % 2:
+        segment_psd[..., 1:] *= 2
+    else:
+        segment_psd[..., 1:-1] *= 2
 
-    # Average PSD over all segments
-    psd = psd_sum / num_segments
+    # Average over segments
+    psd = segment_psd.mean(dim=-2)
 
     # Compute frequency axis
     freqs = torch.fft.rfftfreq(nperseg, d=1 / fs)
 
-    # Reshape PSD to match the original dimensions with the last axis replaced by frequency components
+    # Reshape PSD to match the original dimensions
     return freqs, psd.transpose(axis, -1)
 
 
 class TMANorm(nn.Module):
-    def __init__(self, filter_size, momentum=0.1):
+    def __init__(self, filter_size, momentum=0.1, track_running_stats=True, reg=1e-7, barycenter_init=None):
         super(TMANorm, self).__init__()
         self.filter_size = filter_size
         self.momentum = momentum
-        self.register_buffer("running_barycenter", torch.zeros(1))
+        self.register_buffer("running_barycenter", torch.zeros(1),)
         self.first_iter = True
+        self.track_running_stats = track_running_stats
+        self.reg = reg
+        self.barycenter_init = barycenter_init
 
     def forward(self, x):
         # x: (B, C, T)
 
         # compute psd for each channel using welch method
         # psd: (B, C, F)
-        psd = welch_psd(x, window=None, nperseg=self.filter_size)[1]
+        psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
 
         # compute running barycenter of psd
         # barycenter: (C, F,)
@@ -97,15 +82,15 @@ class TMANorm(nn.Module):
         new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
 
         # update running barycenter
-        if self.first_iter:
-            self.running_barycenter = new_barycenter
-            self.first_iter = False
-        else:
-            self.running_barycenter = (
-                1 - self.momentum
-            ) * self.running_barycenter + self.momentum * new_barycenter
-
-        # compute filter
+        if self.training and self.track_running_stats:
+            if self.first_iter:
+                self.running_barycenter = new_barycenter.detach()
+                self.first_iter = False
+            else:
+                self.running_barycenter = (
+                    1 - self.momentum
+                ) * self.running_barycenter + self.momentum * new_barycenter.detach()
+        # compute filtermodel
         # H: (B, C, F)
         D = torch.sqrt(self.running_barycenter) / torch.sqrt(psd)
         H = torch.fft.irfft(D, dim=-1)

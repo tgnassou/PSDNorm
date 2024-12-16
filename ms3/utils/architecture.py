@@ -35,6 +35,7 @@ class _EncoderBlock(nn.Module):
         kernel_size=9,
         downsample=2,
         activation: nn.Module = nn.ELU,
+        filter_size=None,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -50,7 +51,7 @@ class _EncoderBlock(nn.Module):
                 padding="same",
             ),
             activation(),
-            nn.BatchNorm1d(num_features=out_channels),
+            TMANorm(filter_size) if filter_size else nn.BatchNorm1d(num_features=out_channels),
         )
 
         self.pad = nn.ConstantPad1d(padding=1, value=0)
@@ -194,6 +195,9 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         activation: nn.Module = nn.ELU,
         chs_info=None,
         n_times=None,
+        depth_tma=None,
+        filter_size=None,
+        filter_size_input=None,
     ):
         super().__init__(
             n_outputs=n_outputs,
@@ -230,9 +234,18 @@ class USleepTMA(EEGModuleMixin, nn.Module):
             n_filters = int(n_filters * np.sqrt(2))
         self.channels = channels
 
+        if filter_size_input:
+            self.tmainput = TMANorm(filter_size=filter_size_input,)
+        else:
+            self.tmainput = nn.Identity()
+
         # Instantiate encoder
         encoder = list()
         for idx in range(depth):
+            if filter_size and idx + 1 < depth_tma:
+                filter_size_layer = filter_size // 2 ** idx
+            else:
+                filter_size_layer = None
             encoder += [
                 _EncoderBlock(
                     in_channels=channels[idx],
@@ -240,6 +253,7 @@ class USleepTMA(EEGModuleMixin, nn.Module):
                     kernel_size=time_conv_size,
                     downsample=max_pool_size,
                     activation=activation,
+                    filter_size=filter_size_layer,
                 )
             ]
         self.encoder = nn.Sequential(*encoder)
@@ -317,6 +331,7 @@ class USleepTMA(EEGModuleMixin, nn.Module):
             x = x.permute(0, 2, 1, 3)  # (B, C, S, T)
             x = x.flatten(start_dim=2)  # (B, C, S * T)
 
+        x = self.tmainput(x)
         # encoder
         residuals = []
         for down in self.encoder:
