@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import torch.fft
-import time as time
 import torch
 
 
@@ -16,7 +15,9 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
 
     # Define the window function
     if window == "hamming":
-        window_vals = torch.hamming_window(nperseg, periodic=False, device=signal.device)
+        window_vals = torch.hamming_window(
+            nperseg, periodic=False, device=signal.device
+        )
     elif window == "hann":
         window_vals = torch.hann_window(nperseg, periodic=False, device=signal.device)
     elif window is None:
@@ -31,7 +32,9 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
     num_segments = (signal.shape[-1] - noverlap) // step
 
     # Generate indices for all segments in one batch operation
-    indices = torch.arange(nperseg, device=signal.device).unsqueeze(0) + step * torch.arange(num_segments, device=signal.device).unsqueeze(1)
+    indices = torch.arange(nperseg, device=signal.device).unsqueeze(
+        0
+    ) + step * torch.arange(num_segments, device=signal.device).unsqueeze(1)
 
     # Extract and process all segments in one batch
     segments = signal[..., indices]  # Shape: (..., num_segments, nperseg)
@@ -59,40 +62,80 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
 
 
 class TMANorm(nn.Module):
-    def __init__(self, filter_size, momentum=0.1, track_running_stats=True, reg=1e-7, barycenter_init=None):
+    def __init__(
+        self,
+        filter_size,
+        momentum=0.001,
+        track_running_stats=True,
+        reg=1e-7,
+        barycenter_init=None,
+        bary_learning=False,
+        mean="arithmetic",
+        center=True,
+        n_channels=1,
+    ):
         super(TMANorm, self).__init__()
         self.filter_size = filter_size
         self.momentum = momentum
-        self.register_buffer("running_barycenter", torch.zeros(1),)
+        if bary_learning:
+            self.register_parameter(
+                "barycenter",
+                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
+            )
+        else:
+            self.register_buffer(
+                "barycenter",
+                torch.zeros(1),
+            )
         self.first_iter = True
         self.track_running_stats = track_running_stats
         self.reg = reg
         self.barycenter_init = barycenter_init
+        self.bary_learning = bary_learning
+        self.mean = mean
+        self.center = center
+
+    def _update_barycenter(self, barycenter, reg=1e-7):
+        if self.first_iter:
+            self.barycenter = barycenter
+            self.first_iter = False
+        else:
+            if self.mean == "arithmetic":
+                self.barycenter = (
+                    1 - self.momentum
+                ) * self.barycenter + self.momentum * barycenter
+            elif self.mean == "geometric":
+                barycenter = barycenter + reg
+                self.barycenter = (
+                    self.barycenter ** (1 - self.momentum)
+                    * barycenter**self.momentum
+                )
 
     def forward(self, x):
         # x: (B, C, T)
-
+        # centered x
+        if self.center:
+            x = x - torch.mean(x, dim=-1, keepdim=True)
         # compute psd for each channel using welch method
         # psd: (B, C, F)
         psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
 
         # compute running barycenter of psd
         # barycenter: (C, F,)
-        weights = torch.ones_like(psd) / psd.shape[-1]
-        new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
-
         # update running barycenter
-        if self.training and self.track_running_stats:
-            if self.first_iter:
-                self.running_barycenter = new_barycenter.detach()
-                self.first_iter = False
-            else:
-                self.running_barycenter = (
-                    1 - self.momentum
-                ) * self.running_barycenter + self.momentum * new_barycenter.detach()
+        if self.training and self.track_running_stats and not self.bary_learning:
+            weights = torch.ones_like(psd) / psd.shape[-1]
+            new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
+            self._update_barycenter(new_barycenter.detach())
+
+        if self.bary_learning:
+            target = torch.exp(self.barycenter)
+        else:
+            target = self.barycenter
         # compute filtermodel
         # H: (B, C, F)
-        D = torch.sqrt(self.running_barycenter) / torch.sqrt(psd)
+
+        D = torch.sqrt(target) / torch.sqrt(psd)
         H = torch.fft.irfft(D, dim=-1)
         H = torch.fft.fftshift(H, dim=-1)
 

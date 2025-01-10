@@ -36,6 +36,8 @@ class _EncoderBlock(nn.Module):
         downsample=2,
         activation: nn.Module = nn.ELU,
         filter_size=None,
+        bary_learning=False,
+        mean="arithmetic",
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -51,7 +53,7 @@ class _EncoderBlock(nn.Module):
                 padding="same",
             ),
             activation(),
-            TMANorm(filter_size) if filter_size else nn.BatchNorm1d(num_features=out_channels),
+            TMANorm(filter_size, mean=mean, bary_learning=bary_learning, n_channels=out_channels) if filter_size else nn.BatchNorm1d(num_features=out_channels),
         )
 
         self.pad = nn.ConstantPad1d(padding=1, value=0)
@@ -198,6 +200,8 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         depth_tma=None,
         filter_size=None,
         filter_size_input=None,
+        bary_learning=False,
+        mean="arithmetic",
     ):
         super().__init__(
             n_outputs=n_outputs,
@@ -235,25 +239,27 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         self.channels = channels
 
         if filter_size_input:
-            self.tmainput = TMANorm(filter_size=filter_size_input,)
+            self.tmainput = TMANorm(filter_size=filter_size_input, mean=mean, bary_learning=bary_learning)
         else:
             self.tmainput = nn.Identity()
 
         # Instantiate encoder
         encoder = list()
         for idx in range(depth):
-            if filter_size and idx + 1 < depth_tma:
+            if filter_size and idx + 1 <= depth_tma:
                 filter_size_layer = filter_size // 2 ** idx
             else:
                 filter_size_layer = None
             encoder += [
-                _EncoderBlock(
+                _EncoderBlock(  
                     in_channels=channels[idx],
                     out_channels=channels[idx + 1],
                     kernel_size=time_conv_size,
                     downsample=max_pool_size,
                     activation=activation,
                     filter_size=filter_size_layer,
+                    bary_learning=bary_learning,
+                    mean=mean,
                 )
             ]
         self.encoder = nn.Sequential(*encoder)
