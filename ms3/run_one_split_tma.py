@@ -1,6 +1,7 @@
 # %%
 import time
 import copy
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -24,14 +25,15 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 def get_psd(datasets, subjects):
     psd_all = []
     for dataset_name in datasets:
+        print(f"Dataset: {dataset_name}")
         psd_dataset = []
-        for subject_id in subjects[dataset_name]:
+        for subject_id in tqdm(subjects[dataset_name]):
             dataloader_train_subject = get_dataloader(
                 metadata,
                 [dataset_name],
                 {dataset_name: [subject_id]},
                 n_windows,
-                n_windows_stride,
+                n_windows,
                 batch_size,
                 num_workers,
                 randomize=False,
@@ -43,7 +45,7 @@ def get_psd(datasets, subjects):
                 X_night.append(batch_X.numpy())
             X_night = np.concatenate(X_night)
             # flatten
-            X_night = X_night.reshape(2, -1)
+            X_night = np.concatenate(X_night, axis=-1)
             psd = welch(X_night, axis=-1, nperseg=128)[1]
             psd_dataset.append(psd)
         psd_all.append(psd_dataset)
@@ -83,7 +85,7 @@ n_windows = 35
 n_windows_stride = 10
 batch_size = 64
 num_workers = 6
-percentage = 0.1
+percentage = 1
 
 # model
 in_chans = 2
@@ -151,10 +153,8 @@ for dataset_name in dataset_sources:
 
 # %%
 psd_all = get_psd(dataset_sources, subject_ids_train)
-
 psd_all_ = np.concatenate(psd_all)
 B = np.mean(np.sqrt(psd_all_), axis=0) ** 2
-
 filters = get_filters(psd_all, B)
 dict_filters = create_dict_filters(dataset_sources, subject_ids_train, filters)
 
@@ -445,3 +445,80 @@ except FileNotFoundError:
     df_results = pd.DataFrame()
 df_results = pd.concat((df_results, pd.DataFrame(results)))
 df_results.to_pickle(results_path)
+
+# %%
+# dataset_target = "MASS"k
+# psd_all_target = get_psd([dataset_target], subject_ids_target)
+
+# %%
+B = np.load("B.npy")
+# #%%
+# filters_target = get_filters(psd_all_target, B)
+# dict_filters_target = create_dict_filters(
+#     [dataset_target], subject_ids_target, filters_target
+# )
+
+# %%
+# dataset_name = "SOF"
+# print(f"Dataset: {dataset_name}")
+# subject_id = 1
+# dataloader_train_subject = get_dataloader(
+#     metadata,
+#     [dataset_name],
+#     {dataset_name: [subject_id]},
+#     n_windows,
+#     n_windows,
+#     batch_size,
+#     num_workers,
+#     randomize=False,
+# )
+# X_night = []
+# for batch_X, _ in dataloader_train_subject:
+#     batch_test = batch_X
+#     batch_X = batch_X.permute(0, 2, 1, 3)  # (B, C, S, T)
+#     batch_X = batch_X.flatten(start_dim=2)
+#     X_night.append(batch_X.numpy())
+# X_night = np.concatenate(X_night)
+# # flatten
+# X_night = np.concatenate(X_night, axis=-1)
+# psd = welch(X_night, axis=-1, nperseg=128)[1]
+
+# # # %%
+# # H_0 = dict_filters_target[(dataset_name, subject_id)]
+# # # %%
+# # from scipy.signal import convolve
+# # X = X_night
+# # window_size = X.shape[-1]
+# # # Reduce the number of dimension to (K, C, N*T)
+# # # X = np.concatenate(x_test, axis=-1)
+# # C = len(X)
+# # # B = psd_all_target[1][3]
+# # D = np.sqrt(B) / np.sqrt(psd)
+# # H = np.fft.irfft(D, axis=-1)
+# # H = np.fft.ifftshift(H, axes=-1)
+# # X_norm = [convolve(X[chan], H[chan]) for chan in range(C)]
+# # X_norm = np.array(X_norm)
+
+# # # %%
+# # psd_0 = welch(X[0], axis=-1, nperseg=128)[1]
+# # psd_1 = welch(X_norm[0], axis=-1, nperseg=128)[1]
+
+# # # %%
+# # import matplotlib.pyplot as plt
+# # plt.plot(psd_0, label="Original")
+# # plt.plot(psd_1, label="Filtered")
+# # plt.plot(B[0], label="Barycenter")
+# # plt.yscale("log")
+# # plt.legend()
+# # # %%
+# # plt.plot(H[0])
+# # plt.plot(H_0[0])
+
+# # # %%
+# # plt.plot(X[0])
+# # plt.plot(X_norm[0])
+# # # %%
+
+# # %%
+
+# %%

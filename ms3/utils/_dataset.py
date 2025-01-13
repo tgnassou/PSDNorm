@@ -3,8 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from braindecode.samplers import SequenceSampler
-from scipy.signal import welch, convolve
-import scipy.fft as sp_fft
+from scipy.signal import convolve
 
 from typing import Iterable
 
@@ -48,7 +47,6 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
     def _convolve(self, X, H):
         window_size = X.shape[-1]
-        # Reduce the number of dimension to (K, C, N*T)
         X = np.concatenate(X, axis=-1)
 
         C = len(X)
@@ -81,18 +79,17 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         if self.dict_filters:
             dataset_name = self.metadata.iloc[indices[0]]["run"]
             subject_id = self.metadata.iloc[indices[0]]["subject"]
-            X = self._convolve(X, self.dict_filters[(dataset_name, subject_id)])
+            X = self._convolve(
+                X, self.dict_filters[(dataset_name, subject_id)]
+            )
         y = np.array(y)
 
         return X, y
 
     def __getitem__(self, idx):
-        if isinstance(idx, Iterable):  # Sample multiple windows
-            return self._get_sequence(idx)
-        else:
-            X = np.load(self.metadata.iloc[idx]["path"])
-            y = self.metadata.iloc[idx]["target"]
-            return X, y
+        if not isinstance(idx, Iterable):
+            raise ValueError("idx must be an iterable.")
+        return self._get_sequence(idx)
 
     def __len__(self):
         """Return the total number of samples in the flattened index."""
@@ -110,7 +107,10 @@ def filter_metadata(metadata, dataset_names, subject_ids=None):
             metadata_per_dataset = metadata_per_dataset[
                 metadata_per_dataset.subject_id.isin(subject_ids[dataset_name])
             ]
-        metadata_filtered = pd.concat([metadata_filtered, metadata_per_dataset], axis=0)
+        metadata_filtered = pd.concat(
+            [metadata_filtered, metadata_per_dataset],
+            axis=0
+        )
     metadata_filtered.reset_index(drop=True, inplace=True)
     return metadata_filtered
 
