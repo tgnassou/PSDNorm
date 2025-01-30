@@ -17,7 +17,7 @@ import torch
 from torch import nn
 import torch.fft
 
-from ms3.utils._tmanorm import TMANorm, welch_psd
+from ms3.utils._PSDNorm import PSDNorm, welch_psd
 # import DAtaloader
 from tqdm import tqdm
 
@@ -234,8 +234,8 @@ dataloader = torch.utils.data.DataLoader(
 
 # %%
 encoder = model.encoder[0].block_prepool[:2].to("cpu")
-tmanorm = TMANorm(filter_size=128) 
-tmanorm_2 = TMANorm(filter_size=128)
+PSDNorm = PSDNorm(filter_size=128) 
+PSDNorm_2 = PSDNorm(filter_size=128)
 
 X_flatten_all = []
 psd_input = []
@@ -245,7 +245,7 @@ psd_output = []
 psd_output_2 = []
 y_all = []
 # encoder.eval()
-# tmanorm.eval()
+# PSDNorm.eval()
 with torch.no_grad():
     for batch in dataloader:
         X, y = batch
@@ -258,12 +258,12 @@ with torch.no_grad():
 
         psd_output.append(welch_psd(output, window="hann", nperseg=128)[1])
 
-        X_flatten_filtered = tmanorm(X_flatten)
+        X_flatten_filtered = PSDNorm(X_flatten)
         psd_input_norm.append(welch_psd(X_flatten_filtered, window="hann", nperseg=128)[1])
         output_filtered = encoder(X_flatten_filtered)
         psd_output_norm.append(welch_psd(output_filtered, window="hann", nperseg=128)[1])
 
-        output_filtered_2 = tmanorm_2(output_filtered)
+        output_filtered_2 = PSDNorm_2(output_filtered)
 
         psd_output_2.append(welch_psd(output_filtered_2, window="hann", nperseg=128)[1])
 

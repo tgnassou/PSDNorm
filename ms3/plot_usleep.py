@@ -7,7 +7,7 @@ from pathlib import Path
 from sklearn.metrics import accuracy_score, f1_score
 # %%
 
-history = pd.read_pickle("results_all/history/history_MASS_no_norm.pkl")
+history = pd.read_pickle("results_all/history/history_no_tma_1.pkl")
 history_loss = history["train_loss"]
 history_val_loss = history["val_loss"]
 
@@ -28,8 +28,8 @@ history_val_loss = history["val_loss"]
 history_acc_train = history["train_acc"]
 history_acc_val = history["val_acc"]
 history_acc_std_val = history["val_std"]
-history_acc_target = history["target_acc"]
-history_acc_std_target = history["target_acc_std"]
+# history_acc_target = history["target_acc"]
+# history_acc_std_target = history["target_acc_std"]
 
 # %%
 fig, axes = plt.subplots(1, 3, figsize=(10, 3))
@@ -130,24 +130,27 @@ df["norm"] = df.apply(lambda x: x.tmanorm + str(x.tmalayer), axis=1)
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-df = df[df.norm != "test[0]"]
+df_baseline = df.query("tmatype in ['None', 'offline']")
+df_plot = df.query("mean == 'geometric'")
+df_plot = pd.concat([df_baseline, df_plot], axis=0)
+
 fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-df_1 = df[df.dataset_t == "CHAT"]
-sns.boxplot(x="norm", y="f1", hue="filter_size", data=df_1, ax=axes[0, 0], palette="tab10")
+df_1 = df_plot[df_plot.dataset_t == "CHAT"]
+sns.boxplot(x="tmatype", y="f1", hue="filter_size", data=df_1, ax=axes[0, 0], palette="tab10")
 axes[0, 0].set_title("F1")
 axes[0, 0].set_ylim(0.5, 1)
 axes[0, 0].grid(True)
 
-sns.boxplot(x="norm", y="acc", hue="filter_size", data=df_1, ax=axes[0, 1], palette="tab10")
+sns.boxplot(x="tmatype", y="acc", hue="filter_size", data=df_1, ax=axes[0, 1], palette="tab10")
 axes[0, 1].set_title("Accuracy")
 axes[0, 1].set_ylim(0.5, 1)
 # add grid
 axes[0, 1].grid(True)
 
-df_2 = df[df.dataset_t == "MASS"]
-sns.boxplot(x="norm", y="f1", hue="filter_size", data=df_2, ax=axes[1, 0], palette="tab10")
+df_2 = df_plot[df_plot.dataset_t == "MASS"]
+sns.boxplot(x="tmatype", y="f1", hue="filter_size", data=df_2, ax=axes[1, 0], palette="tab10")
 axes[1, 0].set_ylim(0.5, 1)
-sns.boxplot(x="norm", y="acc", hue="filter_size", data=df_2, ax=axes[1, 1], palette="tab10")
+sns.boxplot(x="tmatype", y="acc", hue="filter_size", data=df_2, ax=axes[1, 1], palette="tab10")
 axes[1, 1].set_ylim(0.5, 1)
 axes[1, 0].set_title("F1")
 axes[1, 0].grid(True)
@@ -160,6 +163,42 @@ for ax in axes.flatten():
 
 plt.tight_layout()
 
+
+# %%
+# %%
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+df_plot = df.query("mean != 'geometric'")
+
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+df_1 = df_plot[df_plot.dataset_t == "CHAT"]
+sns.boxplot(x="tmatype", y="f1", hue="filter_size", data=df_1, ax=axes[0, 0], palette="tab10")
+axes[0, 0].set_title("F1")
+axes[0, 0].set_ylim(0.5, 1)
+axes[0, 0].grid(True)
+
+sns.boxplot(x="tmatype", y="acc", hue="filter_size", data=df_1, ax=axes[0, 1], palette="tab10")
+axes[0, 1].set_title("Accuracy")
+axes[0, 1].set_ylim(0.5, 1)
+# add grid
+axes[0, 1].grid(True)
+
+df_2 = df_plot[df_plot.dataset_t == "MASS"]
+sns.boxplot(x="tmatype", y="f1", hue="filter_size", data=df_2, ax=axes[1, 0], palette="tab10")
+axes[1, 0].set_ylim(0.5, 1)
+sns.boxplot(x="tmatype", y="acc", hue="filter_size", data=df_2, ax=axes[1, 1], palette="tab10")
+axes[1, 1].set_ylim(0.5, 1)
+axes[1, 0].set_title("F1")
+axes[1, 0].grid(True)
+axes[1, 1].grid(True)
+axes[1, 1].set_title("Accuracy")
+
+for ax in axes.flatten():
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(45)
+
+plt.tight_layout()
 # %%
 # table
 df.groupby(["norm", "dataset_t", "filter_size"]).f1.mean()

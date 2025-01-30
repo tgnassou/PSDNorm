@@ -61,20 +61,19 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
     return freqs, psd.transpose(axis, -1)
 
 
-class TMANorm(nn.Module):
+class PSDNorm(nn.Module):
     def __init__(
         self,
         filter_size,
-        momentum=0.001,
+        momentum=0.01,
         track_running_stats=True,
         reg=1e-7,
         barycenter_init=None,
         bary_learning=False,
-        mean="arithmetic",
         center=True,
         n_channels=1,
     ):
-        super(TMANorm, self).__init__()
+        super(PSDNorm, self).__init__()
         self.filter_size = filter_size
         self.momentum = momentum
         if bary_learning:
@@ -92,24 +91,19 @@ class TMANorm(nn.Module):
         self.reg = reg
         self.barycenter_init = barycenter_init
         self.bary_learning = bary_learning
-        self.mean = mean
         self.center = center
 
-    def _update_barycenter(self, barycenter, reg=1e-7):
+    def _update_barycenter(self, barycenter,):
         if self.first_iter:
             self.barycenter = barycenter
             self.first_iter = False
         else:
-            if self.mean == "arithmetic":
-                self.barycenter = (
-                    1 - self.momentum
-                ) * self.barycenter + self.momentum * barycenter
-            elif self.mean == "geometric":
-                barycenter = barycenter + reg
-                self.barycenter = (
-                    self.barycenter ** (1 - self.momentum)
-                    * barycenter**self.momentum
-                )
+            self.barycenter = (
+                (1 - self.momentum)**2 * self.barycenter
+                + self.momentum**2 * barycenter
+                + 2 * self.momentum * (1 - self.momentum) *
+                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log( barycenter)))
+            )
 
     def forward(self, x):
         # x: (B, C, T)
@@ -118,6 +112,7 @@ class TMANorm(nn.Module):
             x = x - torch.mean(x, dim=-1, keepdim=True)
         # compute psd for each channel using welch method
         # psd: (B, C, F)
+
         psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
 
         # compute running barycenter of psd

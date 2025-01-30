@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
@@ -72,7 +73,12 @@ class MultiDomainDataset(torch.utils.data.Dataset):
     def _get_sequence(self, indices):
         X, y = list(), list()
         for idx in indices:
-            X.append(np.load(self.metadata.iloc[idx]["path"]))
+            path = self.metadata.iloc[idx]["path"]
+
+            if not Path(path).exists():
+                path = path.replace("/raid", "/data/parietal/store3/work/tgnassou")
+
+            X.append(np.load(path))
             y.append(self.metadata.iloc[idx]["target"])
 
         X = np.stack(X, axis=0)

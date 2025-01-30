@@ -36,14 +36,26 @@ class _EncoderBlock(nn.Module):
         downsample=2,
         activation: nn.Module = nn.ELU,
         filter_size=None,
-        bary_learning=False,
-        mean="arithmetic",
+        norm="BatchNorm",
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.downsample = downsample
+
+        if norm == "BatchNorm":
+            norm_layer = nn.BatchNorm1d(num_features=out_channels)
+        elif norm == "TMANorm":
+            norm_layer = TMANorm(filter_size, n_channels=out_channels)
+        elif norm == "InstantNorm":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels)
+        elif norm == "InstantNormLearn":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels, affine=True)
+        elif norm == "LayerNorm":
+            norm_layer = nn.LayerNorm(normalized_shape=[out_channels, filter_size])
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
 
         self.block_prepool = nn.Sequential(
             nn.Conv1d(
@@ -53,7 +65,7 @@ class _EncoderBlock(nn.Module):
                 padding="same",
             ),
             activation(),
-            TMANorm(filter_size, mean=mean, bary_learning=bary_learning, n_channels=out_channels) if filter_size else nn.BatchNorm1d(num_features=out_channels),
+            norm_layer,
         )
 
         self.pad = nn.ConstantPad1d(padding=1, value=0)
@@ -200,8 +212,7 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         depth_tma=None,
         filter_size=None,
         filter_size_input=None,
-        bary_learning=False,
-        mean="arithmetic",
+        norm="BatchNorm",
     ):
         super().__init__(
             n_outputs=n_outputs,
@@ -239,27 +250,33 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         self.channels = channels
 
         if filter_size_input:
-            self.tmainput = TMANorm(filter_size=filter_size_input, mean=mean, bary_learning=bary_learning)
+            self.tmainput = TMANorm(filter_size=filter_size_input, bary_learning=bary_learning)
         else:
             self.tmainput = nn.Identity()
 
         # Instantiate encoder
         encoder = list()
         for idx in range(depth):
-            if filter_size and idx + 1 <= depth_tma:
-                filter_size_layer = filter_size // 2 ** idx
+            if norm != "BatchNorm" and idx + 1 <= depth_tma:
+                if norm == "TMANorm":
+                    filter_size_layer = filter_size // 2 ** idx
+                elif norm == "LayerNorm":
+                    filter_size_layer = 105000 // 2 ** idx
+                else:
+                    filter_size_layer = None
+                norm_ = norm
             else:
+                norm_ = "BatchNorm"
                 filter_size_layer = None
             encoder += [
-                _EncoderBlock(  
+                _EncoderBlock(
                     in_channels=channels[idx],
                     out_channels=channels[idx + 1],
                     kernel_size=time_conv_size,
                     downsample=max_pool_size,
                     activation=activation,
                     filter_size=filter_size_layer,
-                    bary_learning=bary_learning,
-                    mean=mean,
+                    norm=norm_,
                 )
             ]
         self.encoder = nn.Sequential(*encoder)
@@ -360,3 +377,148 @@ class USleepTMA(EEGModuleMixin, nn.Module):
             y_pred = y_pred[:, :, 0]
 
         return y_pred
+
+
+class ChambonTMA(EEGModuleMixin, nn.Module):
+    """Sleep staging architecture from Chambon et al. (2018) [Chambon2018]_.
+
+    .. figure:: https://braindecode.org/dev/_static/model/SleepStagerChambon2018.jpg
+        :align: center
+        :alt: SleepStagerChambon2018 Architecture
+
+    Convolutional neural network for sleep staging described in [Chambon2018]_.
+
+    Parameters
+    ----------
+    n_conv_chs : int
+        Number of convolutional channels. Set to 8 in [Chambon2018]_.
+    time_conv_size_s : float
+        Size of filters in temporal convolution layers, in seconds. Set to 0.5
+        in [Chambon2018]_ (64 samples at sfreq=128).
+    max_pool_size_s : float
+        Max pooling size, in seconds. Set to 0.125 in [Chambon2018]_ (16
+        samples at sfreq=128).
+    pad_size_s : float
+        Padding size, in seconds. Set to 0.25 in [Chambon2018]_ (half the
+        temporal convolution kernel size).
+    drop_prob : float
+        Dropout rate before the output dense layer.
+    apply_batch_norm : bool
+        If True, apply batch normalization after both temporal convolutional
+        layers.
+    return_feats : bool
+        If True, return the features, i.e. the output of the feature extractor
+        (before the final linear layer). If False, pass the features through
+        the final linear layer.
+    n_channels : int
+        Alias for `n_chans`.
+    input_size_s:
+        Alias for `input_window_seconds`.
+    n_classes:
+        Alias for `n_outputs`.
+    activation: nn.Module, default=nn.ReLU
+        Activation function class to apply. Should be a PyTorch activation
+        module class like ``nn.ReLU`` or ``nn.ELU``. Default is ``nn.ReLU``.
+
+    References
+    ----------
+    .. [Chambon2018] Chambon, S., Galtier, M. N., Arnal, P. J., Wainrib, G., &
+           Gramfort, A. (2018). A deep learning architecture for temporal sleep
+           stage classification using multivariate and multimodal time series.
+           IEEE Transactions on Neural Systems and Rehabilitation Engineering,
+           26(4), 758-769.
+    """
+
+    def __init__(
+        self,
+        n_chans=None,
+        sfreq=None,
+        n_conv_chs=8,
+        time_conv_size_s=0.5,
+        max_pool_size_s=0.125,
+        pad_size_s=0.25,
+        activation: nn.Module = nn.ReLU,
+        input_window_seconds=None,
+        n_outputs=5,
+        drop_prob=0.25,
+        apply_batch_norm=False,
+        return_feats=False,
+        chs_info=None,
+        n_times=None,
+        filter_size=None,
+    ):
+        super().__init__(
+            n_outputs=n_outputs,
+            n_chans=n_chans,
+            chs_info=chs_info,
+            n_times=n_times,
+            input_window_seconds=input_window_seconds,
+            sfreq=sfreq,
+        )
+        del n_outputs, n_chans, chs_info, n_times, input_window_seconds, sfreq
+
+        self.mapping = {
+            "fc.1.weight": "final_layer.1.weight",
+            "fc.1.bias": "final_layer.1.bias",
+        }
+
+        time_conv_size = np.ceil(time_conv_size_s * self.sfreq).astype(int)
+        max_pool_size = np.ceil(max_pool_size_s * self.sfreq).astype(int)
+        pad_size = np.ceil(pad_size_s * self.sfreq).astype(int)
+
+        if self.n_chans > 1:
+            self.spatial_conv = nn.Conv2d(1, self.n_chans, (self.n_chans, 1))
+
+        CMLN = TMANorm(filter_size=filter_size) if filter_size else nn.Identity()
+
+        self.feature_extractor = nn.Sequential(
+            nn.Conv2d(1, n_conv_chs, (1, time_conv_size), padding=(0, pad_size)),
+            CMLN,
+            activation(),
+            nn.MaxPool2d((1, max_pool_size)),
+            nn.Conv2d(
+                n_conv_chs, n_conv_chs, (1, time_conv_size), padding=(0, pad_size)
+            ),
+            CMLN,
+            activation(),
+            nn.MaxPool2d((1, max_pool_size)),
+        )
+        self.len_last_layer = self._len_last_layer(self.n_chans, self.n_times)
+        self.return_feats = return_feats
+
+        # TODO: Add new way to handle return_features == True
+        if not return_feats:
+            self.final_layer = nn.Sequential(
+                nn.Dropout(p=drop_prob),
+                nn.Linear(self.len_last_layer, self.n_outputs),
+            )
+
+    def _len_last_layer(self, n_channels, input_size):
+        self.feature_extractor.eval()
+        with torch.no_grad():
+            out = self.feature_extractor(torch.Tensor(1, 1, n_channels, input_size))
+        self.feature_extractor.train()
+        return len(out.flatten())
+
+    def forward(self, x):
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Batch of EEG windows of shape (batch_size, n_channels, n_times).
+        """
+        if x.ndim == 3:
+            x = x.unsqueeze(1)
+
+        if self.n_chans > 1:
+            x = self.spatial_conv(x)
+            x = x.transpose(1, 2)
+
+        feats = self.feature_extractor(x).flatten(start_dim=1)
+
+        if self.return_feats:
+            return feats
+        else:
+            return self.final_layer(feats)

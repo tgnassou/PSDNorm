@@ -1,93 +1,70 @@
 # %%
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score
+import torch
+# add statisical test
+from statannot import add_stat_annotation
 
 # %%
 fnames = list(Path("results_all/pickle").glob("results*.pkl"))
 df = pd.concat([pd.read_pickle(fname) for fname in fnames], axis=0)
-# merge y_true and y_target when nan
-# replace nan in column tma by "none"
-# %%
+df = df.query("percentage == 1")
+# df["acc"] = df.apply(lambda x: accuracy_score(x.y_true, x.y_pred), axis=1)
 df["f1"] = df.apply(lambda x: f1_score(x.y_true, x.y_pred, average="weighted"), axis=1)
-df["acc"] = df.apply(lambda x: accuracy_score(x.y_true, x.y_pred), axis=1)
+
+
+# %%
+# rename tma_bary as tma_32
+# df["tma"] = df_concat["tma"].replace("tma_bary", "tma_bary_32")
 # %%
 
-# replace None to "none"
-# %%
-import seaborn as sns
-import matplotlib.pyplot as plt
-df_plot = df.query("percentage != 0.1")
-fig, ax = plt.subplots(1, 2, figsize=(7, 4), sharey=True)
-df_source = df_plot.query("dataset_type == 'source'")
-sns.boxplot(x="tma", y="f1", data=df_source, palette="tab10", ax=ax[0])
+fig, ax = plt.subplots(1, 3, figsize=(9, 3.6), sharey=True)
+df_plot = df.query("dataset_type == 'target' & model != 'chambon'")
+for i, dataset in enumerate(df_plot.dataset.unique()):
+    df_ = df_plot.query(f"dataset == '{dataset}'")
+    df_ = df_.groupby(["tma", "n_subject_train", "subject",]).f1.mean().reset_index()
+    order = ["no_tma", "tma_bary", "tma_neurips"]
+    sns.boxplot(
+        x="tma",
+        y="f1",
+        data=df_,
+        ax=ax[i],
+        # hue="model",
+        # order=order,
+        # legend=False if i != 0 else True,
+    )
+    # test_results = add_stat_annotation(
+    #     ax[i], data=df_, x="tma", y="f1", order=order,
+    #     box_pairs=[("no_tma", "tma_bary"), ("no_tma", "tma_neurips")],
+    #     test='Mann-Whitney', text_format='star',
+    #     verbose=2
+    # )
 
-# change xticklabels
-# ax[0].set_xticklabels(["Baseline", "TMA bary", "TMA tuning", "TMA preprocess"])
+    # ax[i].set_xticklabels(["Baseline", r"CMLN$^{bary}$", r"CMLN$^{param}$", "CMMN"])
 
-# for tick in ax.get_xticklabels():
-#     tick.set_rotation(45)
+    ax[i].set_xlabel("")
+    ax[i].set_ylabel("F1")
+    ax[i].set_title("Dataset: " + dataset)
 
-
-ax[0].set_xlabel("")
-ax[0].set_ylabel("F1")
-ax[0].set_title("Source dataset (Test)")
-
-df_target = df_plot.query("dataset_type == 'target'")
-sns.boxplot(x="tma", y="f1", data=df_target, palette="tab10", ax=ax[1])
-ax[1].set_xticklabels(["Baseline", "TMA bary", "TMA tuning", "TMA preprocess"])
-ax[1].set_xlabel("")
-ax[1].set_ylabel("F1")
-ax[1].set_title("Target dataset")
 
 for ax_ in ax:
     ax_.grid(True)
     for tick in ax_.get_xticklabels():
         tick.set_rotation(45)
-
+fig.suptitle("With more data")
 plt.tight_layout()
+fig.savefig("results_all/figures/norm_comparison.pdf", bbox_inches="tight")
 
 # %%
-# table
-# df_target_ = df_target.groupby(["tma", "dataset"],).f1.mean().reset_index()
-
-df_target.pivot_table(index=["tma", "dataset"], values="f1", aggfunc="mean")
-
+df_plot.pivot_table(index="tma", columns="dataset", values="f1", aggfunc="mean", margins=True).round(3)
 # %%
-import torch
+df_plot.pivot_table(index="tma", columns="dataset", values="f1", aggfunc="mean", margins=True).round(3)
 
 # %%
-model = torch.load("results_all/models/models_tma_bary_0.2.pt")
-barycenter = model.encoder[0].block_prepool[2].barycenter
-model_2 = torch.load("results_all/models/models_tma_learn_0.2.pt")
-barycenter_learn = model_2.encoder[0].block_prepool[2].barycenter
-model_3 = torch.load("results_all/models/models_tma_learn_log_exp_0.2.pt")
-barycenter_log_exp = model_3.encoder[0].block_prepool[2].barycenter
-model_4 = torch.load("results_all/models/models_tma_learn_ReLu_0.2.pt")
-barycenter_Relu = model_4.encoder[0].block_prepool[2].barycenter
+df_target.pivot_table(index="tma", values="f1", aggfunc="mean")
 
-# %%
-barycenter_learn.shape
-# %%
-plt.plot(barycenter.T.cpu().detach().numpy(), alpha=0.5)
-# log
-plt.yscale("log")
-plt.title("Barycenter for first TMA with 6 channels")
-# %%
-plt.title("PSD learned for first TMA with 6 channels")
-plt.plot(torch.exp(barycenter_learn).T.cpu().detach().numpy())
-# plt.yscale("log")
-
-# %%
-plt.title("PSD learned for first TMA with log exp")
-plt.plot(torch.log(1 + torch.exp(barycenter_log_exp)).cpu().detach().numpy())
-plt.yscale("log")
-
-# %%
-plt.title("Bary learned for first TMA with ReLu")
-plt.plot(torch.relu(barycenter_Relu).cpu().detach().numpy())
-plt.yscale("log")
-# %%

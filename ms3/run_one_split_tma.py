@@ -21,7 +21,6 @@ from ms3.utils.architecture import USleepTMA
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # %%
 
-
 def get_psd(datasets, subjects):
     psd_all = []
     for dataset_name in datasets:
@@ -72,7 +71,6 @@ def create_dict_filters(datasets, subjects, filters):
             dict_filters[(dataset_name, subject_id)] = filters[i][j]
     return dict_filters
 
-
 # %%
 # HPs for the experiment
 seed = 42
@@ -105,8 +103,6 @@ patience = 3
 
 # %%
 metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
-
-
 # %%
 dataset_names = [
     "ABC",
