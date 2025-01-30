@@ -13,7 +13,7 @@ import torch
 from torch import nn
 
 from ms3.utils import get_subject_ids, get_dataloader
-from ms3.utils.architecture import USleepTMA
+from ms3.utils.architecture import USleepNorm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -34,7 +34,7 @@ dataset_names = [
 metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
 # %%
 percentage = 0.5
-tma = "tma_geo_64"
+norm = "PSDNorm"
 print(f"Percentage: {percentage}")
 modules = []
 for seed_split in range(3):
@@ -56,27 +56,15 @@ for seed_split in range(3):
     n_classes = 5
     input_size_samples = 3000
 
-    if tma == "no_tma":
+    if norm == "BatchNorm":
         filter_size = None
-        depth_tma = None
-        norm = "BatchNorm"
+        depth_norm = None
 
-    if tma == "tma_geo_32":
-        filter_size = 32
-        depth_tma = 3
-        norm = "PSDNorm"
-
-    if tma == "tma_geo_64":
-        filter_size = 64
-        depth_tma = 3
-        norm = "PSDNorm"
-
-    if tma == "tma_geo_16":
+    elif norm == "PSDNorm":
         filter_size = 16
-        depth_tma = 3
-        norm = "PSDNorm"
+        depth_norm = 3
 
-    print(f"Filter size: {filter_size}, Depth TMA: {depth_tma}, Norm: {norm}")
+    print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
     # training
     n_epochs = 30
     patience = 5
@@ -136,7 +124,7 @@ for seed_split in range(3):
     )
     # %%
 
-    model = USleepTMA(
+    model = USleepNorm(
         n_chans=in_chans,
         sfreq=100,
         depth=12,
@@ -144,8 +132,7 @@ for seed_split in range(3):
         n_outputs=n_classes,
         n_times=input_size_samples,
         filter_size=filter_size,
-        filter_size_input=None,
-        depth_tma=depth_tma,
+        depth_norm=depth_norm,
         norm=norm,
     )
 
@@ -250,15 +237,15 @@ for seed_split in range(3):
             if patience_counter > patience:
                 print("Early stopping")
                 break
-    history_path = f"results/history/history_{tma}_{percentage}_{seed_split}.pkl"
+    history_path = f"results/history/history_{norm}_{percentage}_{seed_split}.pkl"
     df_history = pd.DataFrame(history)
     df_history.to_pickle(history_path)
 
-    torch.save(best_model, f"results/models/models_{tma}_{percentage}_{seed_split}.pt")
+    torch.save(best_model, f"results/models/models_{norm}_{percentage}_{seed_split}.pt")
     modules.append(best_model)
 
 results = []
-results_path = f"results/pickle_percentage/results_{tma}_{percentage}.pkl"
+results_path = f"results/pickle_percentage/results_{norm}_{percentage}.pkl"
 for dataset_target in dataset_targets:
     n_target = len(subject_ids_target[dataset_target])
     for n_subj in range(n_target):
@@ -299,11 +286,10 @@ for dataset_target in dataset_targets:
                     "seed_split": i,
                     "dataset": dataset_target,
                     "dataset_type": "target",
-                    "tma": tma,
+                    "norm": norm,
                     "filter_size_input": None,
                     "filter_size": filter_size,
-                    "depth_tma": depth_tma,
-                    "norm": norm,
+                    "depth_norm": depth_norm,
                     "n_subject_train": n_subject_tot,
                     "n_subject_test": len(subject_ids_target[dataset_target]),
                     "n_windows": n_windows,
@@ -368,10 +354,10 @@ for dataset_source in dataset_sources:
                     "seed_split": i,
                     "dataset": dataset_source,
                     "dataset_type": "source",
-                    "tma": tma,
+                    "norm": norm,
                     "filter_size_input": None,
                     "filter_size": filter_size,
-                    "depth_tma": depth_tma,
+                    "depth_norm": depth_norm,
                     "n_subject_train": n_subject_tot,
                     "n_subject_test": len(subject_ids_test[dataset_source]),
                     "n_windows": n_windows,

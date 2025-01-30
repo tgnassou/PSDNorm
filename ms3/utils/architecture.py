@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from ms3.utils._tmanorm import TMANorm
+from ms3.utils._psdnorm import PSDNorm
 
 from braindecode.models.base import EEGModuleMixin
 
@@ -46,9 +46,9 @@ class _EncoderBlock(nn.Module):
 
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm1d(num_features=out_channels)
-        elif norm == "TMANorm":
-            norm_layer = TMANorm(filter_size, n_channels=out_channels)
-        elif norm == "InstantNorm":
+        elif norm == "PSDNorm":
+            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+        elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         elif norm == "InstantNormLearn":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels, affine=True)
@@ -134,7 +134,7 @@ class _DecoderBlock(nn.Module):
         return x
 
 
-class USleepTMA(EEGModuleMixin, nn.Module):
+class USleepNorm(EEGModuleMixin, nn.Module):
     """
     Sleep staging architecture from Perslev et al. (2021) [1]_.
 
@@ -209,9 +209,8 @@ class USleepTMA(EEGModuleMixin, nn.Module):
         activation: nn.Module = nn.ELU,
         chs_info=None,
         n_times=None,
-        depth_tma=None,
+        depth_norm=None,
         filter_size=None,
-        filter_size_input=None,
         norm="BatchNorm",
     ):
         super().__init__(
@@ -249,16 +248,11 @@ class USleepTMA(EEGModuleMixin, nn.Module):
             n_filters = int(n_filters * np.sqrt(2))
         self.channels = channels
 
-        if filter_size_input:
-            self.tmainput = TMANorm(filter_size=filter_size_input, bary_learning=bary_learning)
-        else:
-            self.tmainput = nn.Identity()
-
         # Instantiate encoder
         encoder = list()
         for idx in range(depth):
-            if norm != "BatchNorm" and idx + 1 <= depth_tma:
-                if norm == "TMANorm":
+            if norm != "BatchNorm" and idx + 1 <= depth_norm:
+                if norm == "PSDNorm":
                     filter_size_layer = filter_size // 2 ** idx
                 elif norm == "LayerNorm":
                     filter_size_layer = 105000 // 2 ** idx
@@ -354,7 +348,6 @@ class USleepTMA(EEGModuleMixin, nn.Module):
             x = x.permute(0, 2, 1, 3)  # (B, C, S, T)
             x = x.flatten(start_dim=2)  # (B, C, S * T)
 
-        x = self.tmainput(x)
         # encoder
         residuals = []
         for down in self.encoder:

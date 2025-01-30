@@ -40,39 +40,27 @@ n_classes = 5
 input_size_samples = 3000
 depth = 12
 
-tma = "tma_bary_depth_1"
+norm = "BatchNorm"
 
-if tma == "no_tma":
+if norm == "BatchNorm":
     filter_size = None
-    depth_tma = None
-    norm = "BatchNorm"
+    depth_norm = None
 
-if tma == "tma_bary":
+elif norm == "PSDNorm":
     filter_size = 16
-    depth_tma = 3
-    norm = "PSDNorm"
+    depth_norm = 3
 
-if tma == "tma_bary_depth_2":
-    filter_size = 16
-    depth_tma = 2
-    norm = "PSDNorm"
-
-if tma == "tma_bary_depth_1":
-    filter_size = 16
-    depth_tma = 1
-    norm = "PSDNorm"
-
-if tma == "InstantNorm":
+elif norm == "InstanceNorm":
     filter_size = None
-    depth_tma = 3
-    norm = "InstantNorm"
+    depth_norm = 3
+    norm = "InstanceNorm"
 
 # training
 n_epochs = 30
 patience = 5
 balanced = False
 
-print(f"filter_size: {filter_size}, depth_tma: {depth_tma}, norm: {norm}, depth: {depth}")
+print(f"filter_size: {filter_size}, depth_norm: {depth_norm}, norm: {norm}")
 
 # %%
 metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
@@ -163,7 +151,7 @@ model = USleepTMA(
     n_times=input_size_samples,
     filter_size=filter_size,
     filter_size_input=None,
-    depth_tma=depth_tma,
+    depth_norm=depth_norm,
     norm=norm,
 )
 
@@ -269,15 +257,15 @@ for epoch in range(n_epochs):
         if patience_counter > patience:
             print("Early stopping")
             break
-history_path = f"results_all/history/history_{tma}_{percentage}_{balanced}.pkl"
+history_path = f"results_all/history/history_{norm}_{percentage}_{balanced}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
-torch.save(best_model, f"results_all/models/models_{tma}_{percentage}_{balanced}.pt")
+torch.save(best_model, f"results_all/models/models_{norm}_{percentage}_{balanced}.pt")
 
 # %%
 results = []
-results_path = f"results_all/pickle/results_{tma}_{percentage}_{balanced}.pkl"
+results_path = f"results_all/pickle/results_{norm}_{percentage}_{balanced}.pkl"
 for dataset_target in dataset_targets:
     n_target = len(subject_ids_target[dataset_target])
     for n_subj in range(n_target):
@@ -312,10 +300,9 @@ for dataset_target in dataset_targets:
                 "seed": seed,
                 "dataset": dataset_target,
                 "dataset_type": "target",
-                "tma": tma,
                 "filter_size_input": None,
                 "filter_size": filter_size,
-                "depth_tma": depth_tma,
+                "depth_norm": depth_norm,
                 "n_subject_train": n_subject_tot,
                 "n_subject_test": len(subject_ids_target[dataset_target]),
                 "n_windows": n_windows,
@@ -367,10 +354,9 @@ for dataset_source in dataset_sources:
                 "seed": seed,
                 "dataset": dataset_source,
                 "dataset_type": "source",
-                "tma": tma,
                 "filter_size_input": None,
                 "filter_size": filter_size,
-                "depth_tma": depth_tma,
+                "depth_norm": depth_norm,
                 "n_subject_train": n_subject_tot,
                 "n_subject_test": len(subject_ids_test[dataset_source]),
                 "n_windows": n_windows,
