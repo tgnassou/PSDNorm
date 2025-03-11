@@ -1,5 +1,5 @@
 # %%
-from ms3.utils import create_metadata
+from temporal_norm.utils import create_metadata
 import argparse
 # %%
 

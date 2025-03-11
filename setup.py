@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='ms3',
+    name='temporal_norm',
     version='0.1',
     description='experiments for multi source sleep staging',
 

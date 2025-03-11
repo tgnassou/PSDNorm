@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from ms3.utils._psdnorm import PSDNorm
+from temporal_norm.utils._psdnorm import PSDNorm
 
 from braindecode.models.base import EEGModuleMixin
 

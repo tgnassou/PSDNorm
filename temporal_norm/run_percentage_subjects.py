@@ -12,8 +12,8 @@ from sklearn.metrics import accuracy_score, f1_score
 import torch
 from torch import nn
 
-from ms3.utils import get_subject_ids, get_dataloader
-from ms3.utils.architecture import USleepNorm
+from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils.architecture import USleepNorm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

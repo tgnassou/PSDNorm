@@ -15,8 +15,8 @@ from scipy.signal import welch
 import torch
 from torch import nn
 
-from ms3.utils import get_subject_ids, get_dataloader
-from ms3.utils.architecture import USleepTMA
+from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils.architecture import USleepTMA
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # %%

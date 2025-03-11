@@ -3,11 +3,11 @@ import mne
 
 import pandas as pd
 import numpy as np
-from ms3.config import DATA_PATH, DATA_LOCAL_PATH
+from temporal_norm.config import DATA_PATH, DATA_LOCAL_PATH
 
 from pathlib import Path
 
-from ms3.utils import read_raw_bids_with_preprocessing
+from temporal_norm.utils import read_raw_bids_with_preprocessing
 from joblib import Parallel, delayed
 
 mne.set_log_level("warning")
