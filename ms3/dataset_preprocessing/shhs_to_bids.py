@@ -62,15 +62,19 @@ def save_to_bids(
 
         annots = annot_from_xml(annot_filepath)
         raw.set_annotations(annots, emit_warning=False)
-        channels_picked = [
-            'EEG(sec)',
-            'ECG',
-            'EMG',
-            'EOG(L)',
-            'EOG(R)',
-            'EEG',
-        ]
-        raw.pick_channels(channels_picked)
+        # check if EEG(sec) and EEG channels are present
+        if "EEG(sec)" in raw.ch_names and "EEG" in raw.ch_names:
+            channels_picked = [
+                'EEG(sec)',
+                'ECG',
+                'EMG',
+                'EOG(L)',
+                'EOG(R)',
+                'EEG',
+            ]
+        else:
+            continue
+        raw.pick(channels_picked)
         mappings = [
             {"EOG(L)": "eog"},
             {"EOG(R)": "eog"},
@@ -103,9 +107,9 @@ def save_to_bids(
 
 
 bids_root = "/storage/store3/data/shhs-bids/"
-raw_path = "/storage/store2/data/shhs/polysomnography/edfs/"
+raw_path = "/storage/store3/data/shhs/polysomnography/edfs/"
 annot_path = (
-    "/storage/store2/data/shhs/polysomnography/annotations-events-nsrr/"
+    "/storage/store3/data/shhs/polysomnography/annotations-events-nsrr/"
 )
 
 for i, session in enumerate(os.listdir(raw_path)):

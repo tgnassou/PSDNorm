@@ -65,7 +65,7 @@ l_freq, h_freq = None, 30
 sfreq = 100
 for subject_id in all_sub:
     bids_path = BIDSPath(
-        subject=subject_id, root=bids_root, datatype=datatype, task="sleep"
+        subject=subject_id, root=bids_root, datatype=datatype, task="sleep", suffix="eeg"
     )
     sessions = os.listdir(f"{bids_path.root}/sub-{bids_path.subject}")
     for session in sessions:

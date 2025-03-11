@@ -46,61 +46,81 @@ def save_subject_to_bids(fileref, raw_path, annot_path, bids_root, rec):
     raw_filepath = raw_path + '/' + fileref + ".edf"
     annot_filepath = annot_path + '/' + fileref + "-nsrr.xml"
     subject = fileref[-4:]
-    raw = mne.io.read_raw_edf(raw_filepath)
-    raw.load_data()
+    if int(subject) > 4111:
+        raw = mne.io.read_raw_edf(raw_filepath)
+        raw.load_data()
 
-    annots = annot_from_xml(annot_filepath)
-    raw.set_annotations(annots, emit_warning=False)
-    channels_to_keep = [
-        'Leg L',
-        'Leg R',
-        'C3',
-        'C4',
-        'A1',
-        'A2',
-        'LOC',
-        'ROC',
-        'ECG L',
-        'ECG R',
-        'L Chin',
-        'R Chin',
-    ]
-    raw.pick_channels(channels_to_keep)
-    mappings = [
-        {"ROC": "eog"},
-        {"LOC": "eog"},
-        {"ECG L": "ecg"},
-        {"ECG R": "ecg"},
-        {"Leg L'": "emg"},
-        {"Leg R": "emg"},
-        {"L Chin": "emg"},
-        {"R Chin": "emg"},
-    ]
-    for mapping in mappings:
+        annots = annot_from_xml(annot_filepath)
+        raw.set_annotations(annots, emit_warning=False)
+        if rec == '1':
+            channels_to_keep = [
+                'Leg L',
+                'Leg R',
+                'C3',
+                'C4',
+                'A1',
+                'A2',
+                'LOC',
+                'ROC',
+                'ECG L',
+                'ECG R',
+                'L Chin',
+                'R Chin',
+            ]
+        if rec == '2':
+            channels_to_keep = [
+                'LegL',
+                'LegR',
+                'C3',
+                'C4',
+                'M1',
+                'M2',
+                'E1',
+                'E2',
+                'ECGL',
+                'ECGR',
+                'LChin',
+                'RChin',
+            ]
         try:
-            raw.set_channel_types(mapping)
+            raw.pick(channels_to_keep)
         except ValueError:
-            print(f"Channel {next(iter(mapping.keys()))} doesn't exist")
-    # write BIDS
-    raw.info["line_freq"] = 50
+            print("No available channels")
+        mappings = [
+            {"E1": "eog"},
+            {"E2": "eog"},
+            {"ECGL": "ecg"},
+            {"ECGR": "ecg"},
+            {"LegL'": "emg"},
+            {"LegR": "emg"},
+            {"LChin": "emg"},
+            {"RChin": "emg"},
+        ]
+        for mapping in mappings:
+            try:
+                raw.set_channel_types(mapping)
+            except ValueError:
+                print(f"Channel {next(iter(mapping.keys()))} doesn't exist")
+        # write BIDS
+        raw.info["line_freq"] = 50
 
-    bids_path = BIDSPath(
-        subject=subject,
-        session=rec,
-        root=bids_root,
-        task="sleep",
-    )
-    try:
-        write_raw_bids(
-            raw,
-            bids_path,
-            overwrite=True,
-            verbose=False,
-            allow_preload=True,
-            format="BrainVision",
+        bids_path = BIDSPath(
+            subject=subject,
+            session=rec,
+            root=bids_root,
+            task="sleep",
         )
-    except ValueError:
-        print("No available EEG channels")
+        try:
+            write_raw_bids(
+                raw,
+                bids_path,
+                overwrite=True,
+                verbose=False,
+                allow_preload=True,
+                format="BrainVision",
+            )
+        except ValueError:
+            print("No available EEG channels")
 
 
 def save_to_bids(
@@ -112,7 +132,7 @@ def save_to_bids(
     annot_names = [Path(annot_file).stem[:-5] for annot_file in annot_files]
     common = list(set(raw_names) & set(annot_names))
     common.sort()
-
+    
     Parallel(n_jobs=n_jobs)(delayed(save_subject_to_bids)(
         fileref, raw_path, annot_path, bids_root, rec
     ) for fileref in common)
@@ -126,6 +146,8 @@ annot_path = (
 n_jobs = 1
 
 for i, session in enumerate(os.listdir(raw_path)):
+    if i == 0:
+        continue
     session_path = os.path.join(raw_path, session)
     annot_session_path = os.path.join(annot_path, session)
     if os.path.isdir(session_path):

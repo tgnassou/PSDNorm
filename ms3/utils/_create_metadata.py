@@ -110,6 +110,7 @@ def create_data(
     )
     if n_subjects == -1:
         n_subjects = len(all_sub)
+    print(n_subjects)
 
     # use joblib to parallelize the process
     Parallel(n_jobs=n_jobs)(

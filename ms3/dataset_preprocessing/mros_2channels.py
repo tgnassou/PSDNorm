@@ -22,8 +22,15 @@ all_sub = (
 def preprocess_and_save(bids_path, preproc_bids_path):
     raw = read_raw_bids(bids_path=bids_path)
     try:
+        channels = raw.ch_names
+        if "A1" in channels:
+            channels = ["C3", "C4", "A1", "A2"]
+        elif "M1" in channels:
+            channels = ["C3", "C4", "M1", "M2"]
+        else:
+            raise ValueError("No A1/A2 or M1/M2 channels found")
         raw.pick_channels(
-            ["C3", "C4", "A1", "A2"],
+            channels,
             ordered=True,
         )
         sfreq = raw.info["sfreq"]

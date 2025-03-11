@@ -33,7 +33,7 @@ dataset_names = [
 ]
 metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
 # %%
-percentage = 0.5
+percentage = 0.01
 norm = "PSDNorm"
 print(f"Percentage: {percentage}")
 modules = []
@@ -70,7 +70,6 @@ for seed_split in range(3):
     patience = 5
 
     # %%
-
     subject_ids = get_subject_ids(metadata, dataset_names)
 
     dataset_targets = ["SOF", "MASS", "CHAT"]
