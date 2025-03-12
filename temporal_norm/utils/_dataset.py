@@ -76,7 +76,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
             path = self.metadata.iloc[idx]["path"]
 
             if not Path(path).exists():
-                path = path.replace("/raid", "/data/parietal/store3/work/tgnassou")
+                path = path.replace("/raid", "$WORK/")
 
             X.append(np.load(path))
             y.append(self.metadata.iloc[idx]["target"])
