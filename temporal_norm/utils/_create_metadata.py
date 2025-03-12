@@ -30,8 +30,7 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
             ses = path_.session
             if ses not in list_sessions:
                 list_sessions.append(ses)
-        if len(list_sessions) == 2:
-            print(f"Subject {subj_id} has two sessions")
+
         for ses in list_sessions:
             bids_path = BIDSPath(
                 datatype=datatype,
@@ -71,14 +70,14 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
                     }
                 ]
                 try:
-                    df_metadata = pd.read_csv(metadata_path
+                    df_metadata = pd.read_csv(metadata_path)
                 except FileNotFoundError:
                     df_metadata = pd.DataFrame()
                 df_metadata = pd.concat((df_metadata, pd.DataFrame(metadata)))
                 df_metadata.to_csv(metadata_path)
 
     except ValueError:
-        print("That was no valid epoch.")
+        print("{} subject no valid".format(subject))
 
     except PermissionError:
         print("subject no valid")

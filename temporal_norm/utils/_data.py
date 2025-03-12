@@ -7,7 +7,7 @@ import numpy as np
 
 import torch
 
-from cmm.config import DATA_PATH
+from temporal_norm.config import DATA_PATH
 
 mne.set_log_level("warning")
 
