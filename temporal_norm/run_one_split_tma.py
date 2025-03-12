@@ -102,7 +102,7 @@ n_epochs = 30
 patience = 3
 
 # %%
-metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
+metadata = pd.read_csv("metadata/metadata_sleep.parquet").drop(columns=["Unnamed: 0"])
 # %%
 dataset_names = [
     "ABC",

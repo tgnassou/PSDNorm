@@ -31,7 +31,7 @@ dataset_names = [
     "SOF",
     "MROS",
 ]
-metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
+metadata = pd.read_csv("metadata/metadata_sleep.parquet").drop(columns=["Unnamed: 0"])
 # %%
 percentage = 0.01
 norm = "PSDNorm"

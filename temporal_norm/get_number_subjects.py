@@ -20,6 +20,9 @@ dataset_names = [
 metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
 
 # %%
+# convert session to str
+metadata["session"] = metadata["session"].astype(str)
+# %%
 # save in parquet
 metadata.to_parquet("metadata/metadata_sleep.parquet")
 # %%

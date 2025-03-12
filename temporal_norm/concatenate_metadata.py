@@ -23,6 +23,6 @@ files = [file for dataset in path.iterdir() if dataset.is_dir() for file in data
 results = Parallel(n_jobs=-1)(delayed(process_file)(file) for file in files)
 
 metadata = pd.concat(results)
-metadata.to_csv("metadata/metadata_sleep.csv", index=False)
+metadata.to_csv("metadata/metadata_sleep.parquet", index=False)
 
 # %%
