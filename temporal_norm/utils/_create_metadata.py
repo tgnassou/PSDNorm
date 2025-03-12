@@ -30,7 +30,8 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
             ses = path_.session
             if ses not in list_sessions:
                 list_sessions.append(ses)
-
+        if len(list_sessions) == 2:
+            print(f"Subject {subj_id} has two sessions")
         for ses in list_sessions:
             bids_path = BIDSPath(
                 datatype=datatype,
