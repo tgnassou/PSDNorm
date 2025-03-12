@@ -17,14 +17,8 @@ dataset_names = [
     "SOF",
     "MROS",
 ]
-metadata = pd.read_csv("metadata/metadata_sleep.csv").drop(columns=["Unnamed: 0"])
+metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
 
-# %%
-# convert session to str
-metadata["session"] = metadata["session"].astype(str)
-# %%
-# save in parquet
-metadata.to_parquet("metadata/metadata_sleep.parquet")
 # %%
 metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
 # %%

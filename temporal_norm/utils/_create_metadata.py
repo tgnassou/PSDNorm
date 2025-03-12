@@ -71,7 +71,7 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
                     }
                 ]
                 try:
-                    df_metadata = pd.read_csv(metadata_path).drop("Unnamed: 0", axis=1)
+                    df_metadata = pd.read_csv(metadata_path
                 except FileNotFoundError:
                     df_metadata = pd.DataFrame()
                 df_metadata = pd.concat((df_metadata, pd.DataFrame(metadata)))
