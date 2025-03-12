@@ -63,7 +63,7 @@ balanced = False
 print(f"filter_size: {filter_size}, depth_norm: {depth_norm}, norm: {norm}")
 
 # %%
-metadata = pd.read_csv("metadata/metadata_sleep.parquet")
+metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
 
 # %%
 dataset_names = [

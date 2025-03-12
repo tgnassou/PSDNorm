@@ -5,8 +5,8 @@ from joblib import Parallel, delayed
 
 # %%
 
-def read_csv(file):
-    return pd.read_csv(file)
+def read_parquet(file):
+    return pd.read_parquet(file)
 
 
 path = Path("metadata/")
@@ -14,7 +14,7 @@ metadata = pd.DataFrame()
 
 def process_file(file):
     try:
-        return read_csv(file)
+        return read_parquet(file)
     except:
         print(f"Error reading {file}")
 
