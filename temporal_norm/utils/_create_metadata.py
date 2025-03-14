@@ -76,8 +76,8 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
                 df_metadata = pd.concat((df_metadata, pd.DataFrame(metadata)))
                 df_metadata.to_csv(metadata_path)
 
-    except ValueError:
-        print("{} subject no valid".format(subject))
+    # except ValueError:
+    #     print("{} subject no valid".format(subject))
 
     except PermissionError:
         print("subject no valid")

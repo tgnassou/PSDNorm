@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+import h5py
 
 import torch
 from torch.utils.data import DataLoader
@@ -10,6 +11,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from temporal_norm.config import DATA_H5_PATH
+
 
 class MultiDomainDataset(torch.utils.data.Dataset):
     def __init__(
@@ -19,6 +22,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
     ):
         self.metadata = metadata.copy()
         self._rename_columns(self.metadata)
+        print("metadata: ", self.metadata)
         self.dict_filters = dict_filters
 
     def _epoching(self, X, size):
@@ -73,12 +77,22 @@ class MultiDomainDataset(torch.utils.data.Dataset):
     def _get_sequence(self, indices):
         X, y = list(), list()
         for idx in indices:
-            path = self.metadata.iloc[idx]["path"]
-
-            if not Path(path).exists():
-                path = path.replace("/raid", "$WORK/")
-
-            X.append(np.load(path))
+            # path = self.metadata.iloc[idx]["path"]
+            dataset = self.metadata.iloc[idx]["run"]
+            subject = self.metadata.iloc[idx]["subject"]
+            session = self.metadata.iloc[idx]["session"]
+            if session == "1.0":
+                session = "1"
+            elif session == "2.0":
+                session = "2"
+            elif session == "3.0":
+                session = "3"
+            sample = self.metadata.iloc[idx]["i_window_in_trial"]
+            
+            path = Path(DATA_H5_PATH) / f"{dataset}.h5"
+            # read h5 part
+            with h5py.File(path, "r") as f:
+                X.append(f[f"subject_{subject}/session_{session}/{sample}"][:])
             y.append(self.metadata.iloc[idx]["target"])
 
         X = np.stack(X, axis=0)

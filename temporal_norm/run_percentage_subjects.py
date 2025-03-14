@@ -37,7 +37,7 @@ percentage = 0.01
 norm = "PSDNorm"
 print(f"Percentage: {percentage}")
 modules = []
-for seed_split in range(3):
+for seed_split in range(1):
 
     # HPs for the experiment
     seed = 42
