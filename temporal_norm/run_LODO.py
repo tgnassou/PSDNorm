@@ -28,15 +28,15 @@ dataset_target = args.dataset
 # %%
 dataset_names = [
     "ABC",
-    # "CHAT",
+    "CHAT",
     "CFS",
-    # "SHHS",
-    # "HOMEPAP",
-    # "CCSHS",
+    "SHHS",
+    "HOMEPAP",
+    "CCSHS",
     "MASS",
-    # "PhysioNet",
-    # "SOF",
-    # "MROS",
+    "PhysioNet",
+    "SOF",
+    "MROS",
 ]
 metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
 # %%

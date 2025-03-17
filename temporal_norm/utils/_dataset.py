@@ -22,7 +22,6 @@ class MultiDomainDataset(torch.utils.data.Dataset):
     ):
         self.metadata = metadata.copy()
         self._rename_columns(self.metadata)
-        print("metadata: ", self.metadata)
         self.dict_filters = dict_filters
 
     def _epoching(self, X, size):
@@ -76,6 +75,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
     def _get_sequence(self, indices):
         X, y = list(), list()
+        print(indices)
         for idx in indices:
             # path = self.metadata.iloc[idx]["path"]
             dataset = self.metadata.iloc[idx]["run"]
@@ -87,8 +87,10 @@ class MultiDomainDataset(torch.utils.data.Dataset):
                 session = "2"
             elif session == "3.0":
                 session = "3"
+            elif session == "nan":
+                session = "None"
             sample = self.metadata.iloc[idx]["i_window_in_trial"]
-            
+
             path = Path(DATA_H5_PATH) / f"{dataset}.h5"
             # read h5 part
             with h5py.File(path, "r") as f:
