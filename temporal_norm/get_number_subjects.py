@@ -26,3 +26,5 @@ for dataset_name in dataset_names:
     print(dataset_name)
     print("n subs:", metadata[metadata["dataset_name"] == dataset_name]["subject_id"].nunique())
     print("n rec:", metadata[metadata["dataset_name"] == dataset_name]["sub+session"].nunique())
+
+# %%
