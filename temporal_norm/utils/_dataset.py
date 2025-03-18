@@ -75,7 +75,6 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
     def _get_sequence(self, indices):
         X, y = list(), list()
-        print(indices)
         for idx in indices:
             # path = self.metadata.iloc[idx]["path"]
             dataset = self.metadata.iloc[idx]["run"]

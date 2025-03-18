@@ -17,6 +17,7 @@ def _create_data_per_subject(dataset_name, subj_id, all_sub, data_path, eog=Fals
     datatype = "eeg"
     suffix = "eeg"
     subject = all_sub[subj_id]
+    print(f"Processing subject {subject}")
     try:
         bids_path = BIDSPath(
             datatype=datatype,
