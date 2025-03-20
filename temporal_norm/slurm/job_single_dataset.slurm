@@ -22,4 +22,4 @@ cd $WORK/test_time_temporal_normalization/temporal_norm/
 module load pytorch-gpu/py3/2.6.0
 
 ## CODE EXECUTION
-srun python run_LODO.py --dataset ABC
+srun python run_LODO.py --dataset SHHS
