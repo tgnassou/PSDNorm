@@ -15,7 +15,7 @@
 
 ## JOB ACCOUNTABILITY
 #SBATCH --qos=qos_gpu-t4
-#SBATCH --time=200:00:00
+#SBATCH --time=100:00:00
 #SBATCH --array=0-9
 
 
