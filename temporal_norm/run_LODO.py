@@ -21,9 +21,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # %%
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
+parser.add_argument("--percent", type=float, default=0.01)
+parser.add_argument("--norm", type=str, default="PSDNorm")
+
 args = parser.parse_args()
 
-dataset_target = args.dataset
 
 # %%
 dataset_names = [
@@ -39,9 +41,12 @@ dataset_names = [
     "MROS",
 ]
 metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
+
 # %%
-percentage = 0.01
-norm = "PSDNorm"
+percentage = args.percent
+norm = args.norm
+dataset_target = args.dataset
+
 print(f"Percentage: {percentage}")
 modules = []
 
