@@ -297,7 +297,7 @@ for n_subj in range(n_target):
             "patience": patience,
             "percentage": percentage,
             # add metrics
-            "y_pred": y_pred_all,
+            "y_pred": y_pred,
             "y_true": y_t,
         }
     )
@@ -335,7 +335,7 @@ for dataset_source in dataset_sources:
                 y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
                 y_true_all.append(batch_y.cpu().detach().numpy())
 
-            y_pred_all = np.concatenate(y_pred_all)[:, 10:25].flatten()
+            y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
             y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
 
         results.append(
@@ -360,7 +360,7 @@ for dataset_source in dataset_sources:
                 "percentage": percentage,
                 "norm": norm,
                 # add metrics
-                "y_pred": y_pred_all,
+                "y_pred": y_pred,
                 "y_true": y_t,
             }
         )
