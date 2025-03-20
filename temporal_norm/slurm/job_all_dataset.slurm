@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ## JOB INFO
-#SBATCH --job-name=lodo_all_datasets
+#SBATCH --job-name=lodo_lodo_psdnorm
 #SBATCH --output=slurm_logs/lodo_all_datasets_%j.out
 #SBATCH --error=slurm_logs/lodo_all_datasets_%j.out
 
@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET
+srun python run_LODO.py --dataset $DATASET --percent 0.15

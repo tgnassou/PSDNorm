@@ -245,6 +245,8 @@ df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
 torch.save(best_model, f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+# save optimizer
+torch.save(optimizer.state_dict(), f"results_LODO/models/optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
 results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
