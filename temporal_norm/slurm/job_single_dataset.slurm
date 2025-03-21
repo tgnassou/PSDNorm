@@ -9,7 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=32
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
@@ -22,4 +22,4 @@ cd $WORK/test_time_temporal_normalization/temporal_norm/
 module load pytorch-gpu/py3/2.6.0
 
 ## CODE EXECUTION
-srun python run_LODO.py --dataset SHHS
+srun python run_LODO.py --dataset ABC --percent 0.15
