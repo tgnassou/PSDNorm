@@ -9,12 +9,12 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=24
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
-#SBATCH --qos=qos_gpu-t3
-#SBATCH --time=20:00:00
+#SBATCH --qos=qos_gpu-dev
+#SBATCH --time=02:00:00
 
 cd $WORK/test_time_temporal_normalization/temporal_norm/
 ## ENV ACTIVATION
