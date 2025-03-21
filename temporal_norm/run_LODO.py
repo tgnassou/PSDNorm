@@ -60,7 +60,7 @@ rng = check_random_state(seed)
 n_windows = 35
 n_windows_stride = 10
 batch_size = 64
-num_workers = 6
+num_workers = 24
 
 # model
 in_chans = 2
