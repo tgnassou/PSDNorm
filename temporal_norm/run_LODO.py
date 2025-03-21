@@ -165,9 +165,9 @@ for epoch in range(n_epochs):
         loss_batch.backward()
         optimizer.step()
 
-        y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
-        y_true_all.append(batch_y.cpu().detach().numpy())
-        train_loss[i] = loss_batch.item()
+        # y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
+        # y_true_all.append(batch_y.cpu().detach().numpy())
+        # train_loss[i] = loss_batch.item()
 
     y_pred = np.concatenate(y_pred_all)[:, 10:25]
     y_true = np.concatenate(y_true_all)[:, 10:25]
