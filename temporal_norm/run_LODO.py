@@ -60,7 +60,7 @@ rng = check_random_state(seed)
 n_windows = 35
 n_windows_stride = 10
 batch_size = 64
-num_workers = 24
+num_workers = 40
 
 # model
 in_chans = 2
@@ -165,10 +165,12 @@ for epoch in range(n_epochs):
         loss_batch.backward()
         optimizer.step()
 
-        # y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
-        # y_true_all.append(batch_y.cpu().detach().numpy())
-        # train_loss[i] = loss_batch.item()
-
+        y_pred_all.append(output.argmax(axis=1).detach())
+        y_true_all.append(batch_y)
+        train_loss[i] = loss_batch.item()
+    
+    y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+    y_true_all = [y.cpu().numpy() for y in y_true_all]
     y_pred = np.concatenate(y_pred_all)[:, 10:25]
     y_true = np.concatenate(y_true_all)[:, 10:25]
     perf = accuracy_score(y_true.flatten(), y_pred.flatten())
