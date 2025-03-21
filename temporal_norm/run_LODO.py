@@ -282,7 +282,7 @@ for n_subj in range(n_target):
             y_true_all.append(batch_y.detach())
 
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-        y_true_all = [y.cpu().numpy() for y_true in y_true_all]
+        y_true_all = [y.cpu().numpy() for y in y_true_all]
 
         y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
         y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
@@ -346,7 +346,7 @@ for dataset_source in dataset_sources:
                 y_true_all.append(batch_y.detach())
 
             y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-            y_true_all = [y.cpu().numpy() for y_true in y_true]
+            y_true_all = [y.cpu().numpy() for y in y_true]
 
             y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
             y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
