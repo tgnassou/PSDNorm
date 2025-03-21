@@ -10,7 +10,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=40
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY

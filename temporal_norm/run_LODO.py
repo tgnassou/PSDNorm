@@ -77,7 +77,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 30
+n_epochs = 1
 patience = 5
 
 # %%
@@ -166,7 +166,7 @@ for epoch in range(n_epochs):
         optimizer.step()
 
         y_pred_all.append(output.argmax(axis=1).detach())
-        y_true_all.append(batch_y)
+        y_true_all.append(batch_y.detach())
         train_loss[i] = loss_batch.item()
     
     y_pred_all = [y.cpu().numpy() for y in y_pred_all]
@@ -189,9 +189,12 @@ for epoch in range(n_epochs):
 
             loss_batch = criterion(output, batch_y)
 
-            y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
-            y_true_all.append(batch_y.cpu().detach().numpy())
+            y_pred_all.append(output.argmax(axis=1).detach())
+            y_true_all.append(batch_y.detach())
             val_loss[i] = loss_batch.item()
+        
+        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+        y_true_all = [y.cpu().numpy() for y in y_true_all]
 
         y_pred = np.concatenate(y_pred_all)[:, 10:25]
         y_true = np.concatenate(y_true_all)[:, 10:25]
@@ -275,8 +278,11 @@ for n_subj in range(n_target):
 
             output = best_model(batch_X)
 
-            y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
-            y_true_all.append(batch_y.cpu().detach().numpy())
+            y_pred_all.append(output.argmax(axis=1).detach())
+            y_true_all.append(batch_y.detach())
+
+        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+        y_true_all = [y.cpu().numpy() for y_true in y_true_all]
 
         y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
         y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
@@ -336,8 +342,11 @@ for dataset_source in dataset_sources:
                 batch_y = batch_y.to(device)
 
                 output = best_model(batch_X)
-                y_pred_all.append(output.argmax(axis=1).cpu().detach().numpy())
-                y_true_all.append(batch_y.cpu().detach().numpy())
+                y_pred_all.append(output.argmax(axis=1).detach())
+                y_true_all.append(batch_y.detach())
+
+            y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+            y_true_all = [y.cpu().numpy() for y_true in y_true]
 
             y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
             y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
