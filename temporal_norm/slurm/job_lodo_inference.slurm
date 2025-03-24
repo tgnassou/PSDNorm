@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ## JOB INFO
-#SBATCH --job-name=lodo_psdnorm
-#SBATCH --output=slurm_logs/lodo_psdnorm.out
-#SBATCH --error=slurm_logs/lodo_psdnorm.err
+#SBATCH --job-name=lodo_shhs_bn
+#SBATCH --output=slurm_logs/lodo_inference_shhs_bn.out
+#SBATCH --error=slurm_logs/lodo_inference_shhs_bn.err
 
 ## NODE CONFIGURATION
 #SBATCH --nodes=1
@@ -13,8 +13,8 @@
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
-#SBATCH --qos=qos_gpu-dev
-#SBATCH --time=02:00:00
+#SBATCH --qos=qos_gpu-t3
+#SBATCH --time=20:00:00
 
 cd $WORK/test_time_temporal_normalization/temporal_norm/
 ## ENV ACTIVATION
