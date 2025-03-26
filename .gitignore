@@ -1,3 +1,7 @@
+datasets/
+temporal_norm/results
+temporal_norm/results_LODO
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
