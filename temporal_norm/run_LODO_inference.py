@@ -16,6 +16,7 @@ from temporal_norm.utils import get_subject_ids, get_dataloader
 from temporal_norm.utils.architecture import USleepNorm
 
 import argparse
+import tqdm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # %%
@@ -81,39 +82,13 @@ n_epochs = 30
 patience = 5
 
 # %%
-# subject_ids = get_subject_ids(metadata, dataset_names)
-
-# subject_id_target = subject_ids[dataset_target]
-
-# dataset_sources = dataset_names.copy()
-# dataset_sources.remove(dataset_target)
-
-# # %%
-# subject_ids_train, subject_ids_val = dict(), dict()
-# subject_ids_test = dict()
-# n_subject_tot = 0
-# for dataset_name in dataset_sources:
-#     subject_ids_train_val, subject_ids_test[dataset_name] = train_test_split(
-#         subject_ids[dataset_name], test_size=0.2, random_state=rng
-#     )
-#     n_subjects = int(percentage * len(subject_ids_train_val))
-#     n_subjects = 2 if n_subjects < 2 else n_subjects
-#     n_subject_tot += n_subjects
-#     print(f"Dataset: {dataset_name}, n_subjects: {n_subjects}")
-#     subject_ids_dataset = rng.choice(subject_ids_train_val, n_subjects, replace=False)
-#     subject_ids_train[dataset_name], subject_ids_val[dataset_name] = train_test_split(
-#         subject_ids_dataset, test_size=0.2, random_state=seed
-#     )
-
-# %%
 
 best_model = torch.load(f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
 best_model = best_model.to(device)
-results = []
 results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
 n_target = len(subject_id_target)
-for n_subj in range(n_target):
+for n_subj in tqdm.tqdm(range(n_target)):
     dataloader_target = get_dataloader(
         metadata,
         [dataset_target],
@@ -142,7 +117,7 @@ for n_subj in range(n_target):
 
         y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
         y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
-    results.append(
+    results = [
         {
             "subject": n_subj,
             # add hps
@@ -166,13 +141,13 @@ for n_subj in range(n_target):
             "y_pred": y_pred,
             "y_true": y_t,
         }
-    )
+    ]
 
-try:
-    df_results = pd.read_pickle(results_path)
-except FileNotFoundError:
-    df_results = pd.DataFrame()
-df_results = pd.concat((df_results, pd.DataFrame(results)))
-df_results.to_pickle(results_path)
+    try:
+        df_results = pd.read_pickle(results_path)
+    except FileNotFoundError:
+        df_results = pd.DataFrame()
+    df_results = pd.concat((df_results, pd.DataFrame(results)))
+    df_results.to_pickle(results_path)
 
 print("Target Inference Done")
