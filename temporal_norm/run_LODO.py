@@ -65,17 +65,18 @@ rng = check_random_state(seed)
 # dataloader
 n_windows = 35
 n_windows_stride = 10
-batch_size = 512
-batch_size_inference = batch_size
-num_workers = 20
+# batch_size = 512
+batch_size = 64
+batch_size_inference = batch_size * 16
+num_workers = 10
 pin_memory = True
-persistent_workers = True
+persistent_workers = False
 
 # model
 in_chans = 2
 n_classes = 5
 input_size_samples = 3000
-lr = 1e-2
+lr = 1e-3
 
 if norm == "BatchNorm":
     filter_size = None
@@ -184,7 +185,7 @@ for epoch in range(n_epochs):
     y_pred_all, y_true_all = list(), list()
 
     running_loss = 0.0
-    running_window = 10  # Number of batches for averaging loss
+    running_window = 100  # Number of batches for averaging loss
     for i, (batch_X, batch_y) in enumerate(
         tqdm(dataloader_train, desc="Training", unit="batch")
     ):
