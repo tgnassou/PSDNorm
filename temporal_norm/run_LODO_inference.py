@@ -19,6 +19,7 @@ import argparse
 import tqdm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
 # %%
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
