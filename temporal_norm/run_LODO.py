@@ -2,6 +2,7 @@
 import time
 import copy
 from pathlib import Path
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -64,13 +65,17 @@ rng = check_random_state(seed)
 # dataloader
 n_windows = 35
 n_windows_stride = 10
-batch_size = 64
-num_workers = 40
+batch_size = 512
+batch_size_inference = batch_size
+num_workers = 20
+pin_memory = True
+persistent_workers = True
 
 # model
 in_chans = 2
 n_classes = 5
 input_size_samples = 3000
+lr = 1e-2
 
 if norm == "BatchNorm":
     filter_size = None
@@ -82,7 +87,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 30
+n_epochs = 10
 patience = 5
 
 # %%
@@ -119,6 +124,8 @@ dataloader_train = get_dataloader(
     n_windows_stride,
     batch_size,
     num_workers,
+    pin_memory,
+    persistent_workers,
 )
 
 dataloader_val = get_dataloader(
@@ -127,9 +134,21 @@ dataloader_val = get_dataloader(
     subject_ids_val,
     n_windows,
     n_windows_stride,
-    batch_size,
+    batch_size_inference,
     num_workers,
+    pin_memory,
+    persistent_workers,
 )
+
+print()
+print(f"Number of subjects: {n_subject_tot}")
+print(f"Number of training subjects: {sum([len(v) for v in subject_ids_train.values()])}")
+print(f"Number of validation subjects: {sum([len(v) for v in subject_ids_val.values()])}")
+print(f"Number of testing subjects: {sum([len(v) for v in subject_ids_test.values()])}")
+
+print(f"Number of training batches: {len(dataloader_train)}")
+print(f"Number of validation batches: {len(dataloader_val)}")
+
 # %%
 
 model = USleepNorm(
@@ -143,26 +162,35 @@ model = USleepNorm(
     depth_norm=depth_norm,
     norm=norm,
 )
+# model = torch.compile(model)
 
 model.to(device)
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 # %%
 history = []
 
+print()
 print("Start training")
 scaler = GradScaler(device=device, enabled=use_amp)
 min_val_loss = np.inf
 for epoch in range(n_epochs):
+    print()
+    print(f"Epoch: {epoch}")
     time_start = time.time()
     model.train()
     train_loss = np.zeros(len(dataloader_train))
     y_pred_all, y_true_all = list(), list()
-    for i, (batch_X, batch_y) in enumerate(dataloader_train):
+
+    running_loss = 0.0
+    running_window = 10  # Number of batches for averaging loss
+    for i, (batch_X, batch_y) in enumerate(
+        tqdm(dataloader_train, desc="Training", unit="batch")
+    ):
         optimizer.zero_grad()
-        batch_X = batch_X.to(device)
-        batch_y = batch_y.to(device)
+        batch_X = batch_X.to(device, non_blocking=True)
+        batch_y = batch_y.to(device, non_blocking=True)
 
         with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
             output = model(batch_X)
@@ -175,7 +203,14 @@ for epoch in range(n_epochs):
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
         train_loss[i] = loss_batch.item()
-    
+
+        # Update tqdm progress bar every 10 batches with average loss
+        running_loss += loss_batch.item()
+        if (i + 1) % running_window == 0:
+            avg_loss = running_loss / running_window
+            tqdm.write(f"Batch {i+1}/{len(dataloader_train)}, Avg Loss: {avg_loss:.3f}")
+            running_loss = 0.0
+
     y_pred_all = [y.cpu().numpy() for y in y_pred_all]
     y_true_all = [y.cpu().numpy() for y in y_true_all]
     y_pred = np.concatenate(y_pred_all)[:, 10:25]
@@ -185,13 +220,17 @@ for epoch in range(n_epochs):
         y_true.flatten(), y_pred.flatten(), average="weighted"
     )
 
+    print(f"End epoch train: {time.time() - time_start:.2f}s")
+
+    print(f"Start eval on val...")
+
     model.eval()
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
-        for i, (batch_X, batch_y) in enumerate(dataloader_val):
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
+        for i, (batch_X, batch_y) in enumerate(tqdm(dataloader_val)):
+            batch_X = batch_X.to(device, non_blocking=True)
+            batch_y = batch_y.to(device, non_blocking=True)
 
             with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
                 output = model(batch_X)
@@ -201,7 +240,7 @@ for epoch in range(n_epochs):
             y_pred_all.append(output.argmax(axis=1).detach())
             y_true_all.append(batch_y.detach())
             val_loss[i] = loss_batch.item()
-        
+
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
         y_true_all = [y.cpu().numpy() for y in y_true_all]
 
@@ -213,6 +252,8 @@ for epoch in range(n_epochs):
             y_true.flatten(), y_pred.flatten(), average="weighted"
         )
         std_f1_val = np.std(f1_val)
+
+        print(f"End of eval val: {time.time() - time_start:.2f}s")
 
     time_end = time.time()
     history.append(
@@ -254,16 +295,25 @@ for epoch in range(n_epochs):
         if patience_counter > patience:
             print("Early stopping")
             break
-history_path = f"results_LODO/history/history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+
+folder = Path("results_LODO")
+folder.mkdir(parents=True, exist_ok=True)
+folder_history = folder / "history"
+folder_history.mkdir(parents=True, exist_ok=True)
+history_path = folder_history / f"history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
-torch.save(best_model, f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+folder_model = folder / "models"
+folder_model.mkdir(parents=True, exist_ok=True)
+torch.save(best_model, folder_model / f"models_{norm}_{percentage}_LODO_{dataset_target}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), f"results_LODO/models/optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), folder_model / f"optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
-results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+folder_pickle = folder / "pickles"
+folder_pickle.mkdir(parents=True, exist_ok=True)
+results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
 n_target = len(subject_id_target)
 for n_subj in range(n_target):
@@ -273,7 +323,7 @@ for n_subj in range(n_target):
         {dataset_target: subject_id_target[n_subj:n_subj+1]},
         n_windows,
         n_windows_stride,
-        batch_size,
+        batch_size_inference,
         num_workers,
     )
     y_pred_all, y_true_all = list(), list()
@@ -312,6 +362,7 @@ for n_subj in range(n_target):
             "n_windows": n_windows,
             "n_windows_stride": n_windows_stride,
             "batch_size": batch_size,
+            "batch_size_inference": batch_size_inference,
             "num_workers": num_workers,
             "n_epochs": n_epochs,
             "patience": patience,

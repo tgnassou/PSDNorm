@@ -1,6 +1,7 @@
 import numpy as np
 from pathlib import Path
 import h5py
+from functools import lru_cache
 
 import torch
 from torch.utils.data import DataLoader
@@ -73,6 +74,10 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         df["i_start_in_trial"] = np.zeros(len(df), dtype=int)
         df["i_stop_in_trial"] = 3000 * np.ones(len(df), dtype=int)
 
+    @lru_cache(maxsize=32)
+    def _get_h5_file(self, dataset):
+        return h5py.File(Path(DATA_H5_PATH) / f"{dataset}.h5", "r")
+
     def _get_sequence(self, indices):
         X, y = list(), list()
         for idx in indices:
@@ -90,10 +95,9 @@ class MultiDomainDataset(torch.utils.data.Dataset):
                 session = "None"
             sample = self.metadata.iloc[idx]["i_window_in_trial"]
 
-            path = Path(DATA_H5_PATH) / f"{dataset}.h5"
             # read h5 part
-            with h5py.File(path, "r") as f:
-                X.append(f[f"subject_{subject}/session_{session}/{sample}"][:])
+            f = self._get_h5_file(dataset)
+            X.append(f[f"subject_{subject}/session_{session}/{sample}"][:])
             y.append(self.metadata.iloc[idx]["target"])
 
         X = np.stack(X, axis=0)
@@ -153,6 +157,8 @@ def get_dataloader(
     n_windows_stride,
     batch_size,
     num_workers,
+    pin_memory,
+    persistent_workers,
     dict_filters=None,
     randomize=True,
 ):
@@ -167,6 +173,9 @@ def get_dataloader(
     )
     dataloader = DataLoader(
         dataset, batch_size=batch_size,
-        sampler=sampler, num_workers=num_workers
+        sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
     )
     return dataloader
