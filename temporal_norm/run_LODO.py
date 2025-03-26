@@ -248,16 +248,16 @@ for epoch in range(n_epochs):
         if patience_counter > patience:
             print("Early stopping")
             break
-history_path = f"results_LODO/history/history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+history_path = f"results/history/history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
-torch.save(best_model, f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(best_model, f"results/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), f"results_LODO/models/optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), f"results/models/optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
-results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+results_path = f"results/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
 n_target = len(subject_id_target)
 for n_subj in range(n_target):
