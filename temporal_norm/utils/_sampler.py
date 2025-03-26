@@ -89,6 +89,6 @@ class BalancedSequenceSampler(RecordingSampler):
         for _ in range(self.n_sequences):
             dataset = self.sample_dataset()
             idx_selected = np.where(ind_dataset == dataset)[0]
-            id_selected = np.random.choice(idx_selected)
+            id_selected = self.rng.choice(idx_selected)
             start_ind = start_inds[id_selected]
-            yield tuple(range(start_ind, start_ind + self.n_windows)), dataset
+            yield tuple(range(start_ind, start_ind + self.n_windows))
