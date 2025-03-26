@@ -103,6 +103,7 @@ dataset_sources.remove(dataset_target)
 subject_ids_train, subject_ids_val = dict(), dict()
 subject_ids_test = dict()
 n_subject_tot = 0
+print("Datasets used for training (and validation):")
 for dataset_name in dataset_sources:
     subject_ids_train_val, subject_ids_test[dataset_name] = train_test_split(
         subject_ids[dataset_name], test_size=0.2, random_state=rng
