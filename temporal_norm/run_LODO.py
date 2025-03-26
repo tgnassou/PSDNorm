@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score
 import torch
 from torch import nn
 
-from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm
 
 import argparse
@@ -60,7 +60,7 @@ rng = check_random_state(seed)
 n_windows = 35
 n_windows_stride = 10
 batch_size = 64
-num_workers = 40
+num_workers = 5
 
 # model
 in_chans = 2
@@ -106,14 +106,16 @@ for dataset_name in dataset_sources:
     )
 
 # %%
+probs = get_probs(metadata, dataset_sources, alpha=0.5)
 dataloader_train = get_dataloader(
     metadata,
     dataset_sources,
     subject_ids_train,
     n_windows,
-    n_windows_stride,
+    1,
     batch_size,
     num_workers,
+    probs=probs,
 )
 
 dataloader_val = get_dataloader(
@@ -124,6 +126,7 @@ dataloader_val = get_dataloader(
     n_windows_stride,
     batch_size,
     num_workers,
+    randomize=False,
 )
 # %%
 

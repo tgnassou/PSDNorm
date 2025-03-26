@@ -12,6 +12,7 @@ from typing import Iterable
 import pandas as pd
 
 from temporal_norm.config import DATA_H5_PATH
+from temporal_norm.utils._sampler import BalancedSequenceSampler
 
 
 class MultiDomainDataset(torch.utils.data.Dataset):
@@ -155,18 +156,41 @@ def get_dataloader(
     num_workers,
     dict_filters=None,
     randomize=True,
+    probs=None,
 ):
     metadata = filter_metadata(metadata, dataset_names, subject_ids)
     dataset = MultiDomainDataset(metadata, dict_filters=dict_filters)
-    sampler = SequenceSampler(
-        dataset.metadata,
-        n_windows=n_windows,
-        n_windows_stride=n_windows_stride,
-        random_state=42,
-        randomize=randomize,
-    )
+    if probs:
+        sampler = BalancedSequenceSampler(
+            dataset.metadata,
+            n_windows=n_windows,
+            n_windows_stride=n_windows_stride,
+            random_state=42,
+            probs=probs,
+            n_sequences=int(1e6),
+        )
+    else:
+        sampler = SequenceSampler(
+            dataset.metadata,
+            n_windows=n_windows,
+            n_windows_stride=n_windows_stride,
+            random_state=42,
+            randomize=randomize,
+        )
     dataloader = DataLoader(
         dataset, batch_size=batch_size,
         sampler=sampler, num_workers=num_workers
     )
     return dataloader
+
+
+def get_probs(metadata, dataset_names, alpha=0.5):
+    metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
+    length = {}
+    for dataset in dataset_names:
+        length[dataset] = metadata[metadata["dataset_name"] == dataset]["sub+session"].nunique()
+
+    probs = {}
+    for dataset in dataset_names:
+        probs[dataset] = alpha / len(dataset_names) + (1 - alpha) * (1 / length[dataset]) / sum([1 / length[dataset] for dataset in dataset_names])
+    return probs
