@@ -14,8 +14,8 @@
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
-#SBATCH --qos=qos_gpu-t3
-#SBATCH --time=20:00:00
+#SBATCH --qos=qos_gpu-t4
+#SBATCH --time=50:00:00
 #SBATCH --array=0-9
 
 
@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET --percent 
+srun python run_LODO.py --dataset $DATASET --percent 0.15
