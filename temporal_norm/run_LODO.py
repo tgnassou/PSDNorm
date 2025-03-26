@@ -115,7 +115,7 @@ dataloader_train = get_dataloader(
     1,
     batch_size,
     num_workers,
-    probs=probs,
+    balanced=True,
 )
 
 dataloader_val = get_dataloader(

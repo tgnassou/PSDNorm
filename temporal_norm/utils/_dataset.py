@@ -156,18 +156,20 @@ def get_dataloader(
     num_workers,
     dict_filters=None,
     randomize=True,
-    probs=None,
+    balanced=None,
 ):
     metadata = filter_metadata(metadata, dataset_names, subject_ids)
     dataset = MultiDomainDataset(metadata, dict_filters=dict_filters)
-    if probs:
+    if balanced:
+        probs = get_probs(metadata, dataset_names)
+        n_sequences = int(len(metadata) / 10)
         sampler = BalancedSequenceSampler(
             dataset.metadata,
             n_windows=n_windows,
             n_windows_stride=n_windows_stride,
             random_state=42,
             probs=probs,
-            n_sequences=int(1e6),
+            n_sequences=n_sequences,
         )
     else:
         sampler = SequenceSampler(
