@@ -84,7 +84,7 @@ patience = 5
 
 # %%
 
-best_model = torch.load(f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+best_model = torch.load(f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt", weights_only=False)
 best_model = best_model.to(device)
 results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
