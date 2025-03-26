@@ -1,6 +1,7 @@
 # %%
 import time
 import copy
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 from torch import nn
+from torch.amp import autocast, GradScaler
 
 from temporal_norm.utils import get_subject_ids, get_dataloader
 from temporal_norm.utils.architecture import USleepNorm
@@ -23,9 +25,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument("--use_amp", action="store_true")
 
 args = parser.parse_args()
-
+use_amp = args.use_amp
+if use_amp:
+    print("BE CAREFUL! AMP is enabled.")
 
 # %%
 dataset_names = [
@@ -147,6 +152,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 history = []
 
 print("Start training")
+scaler = GradScaler(device=device, enabled=use_amp)
 min_val_loss = np.inf
 for epoch in range(n_epochs):
     time_start = time.time()
@@ -158,12 +164,13 @@ for epoch in range(n_epochs):
         batch_X = batch_X.to(device)
         batch_y = batch_y.to(device)
 
-        output = model(batch_X)
+        with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+            output = model(batch_X)
+            loss_batch = criterion(output, batch_y)
 
-        loss_batch = criterion(output, batch_y)
-
-        loss_batch.backward()
-        optimizer.step()
+        scaler.scale(loss_batch).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
@@ -185,7 +192,9 @@ for epoch in range(n_epochs):
         for i, (batch_X, batch_y) in enumerate(dataloader_val):
             batch_X = batch_X.to(device)
             batch_y = batch_y.to(device)
-            output = model(batch_X)
+
+            with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+                output = model(batch_X)
 
             loss_batch = criterion(output, batch_y)
 
@@ -276,7 +285,8 @@ for n_subj in range(n_target):
             batch_X = batch_X.to(device)
             batch_y = batch_y.to(device)
 
-            output = best_model(batch_X)
+            with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+                output = best_model(batch_X)
 
             y_pred_all.append(output.argmax(axis=1).detach())
             y_true_all.append(batch_y.detach())
@@ -341,7 +351,9 @@ for dataset_source in dataset_sources:
                 batch_X = batch_X.to(device)
                 batch_y = batch_y.to(device)
 
-                output = best_model(batch_X)
+                with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+                    output = best_model(batch_X)
+
                 y_pred_all.append(output.argmax(axis=1).detach())
                 y_true_all.append(batch_y.detach())
 
