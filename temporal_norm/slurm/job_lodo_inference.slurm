@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ## JOB INFO
-#SBATCH --job-name=lodo_shhs_psdn2
-#SBATCH --output=slurm_logs/lodo_inference_shhs_psdn.out
-#SBATCH --error=slurm_logs/lodo_inference_shhs_psdn.err
+#SBATCH --job-name=lodo_mros_psdn2
+#SBATCH --output=slurm_logs/lodo_inference_mros_psdn.out
+#SBATCH --error=slurm_logs/lodo_inference_mros_psdn.err
 
 ## NODE CONFIGURATION
 #SBATCH --nodes=1
@@ -22,4 +22,4 @@ cd $WORK/test_time_temporal_normalization/temporal_norm/
 module load pytorch-gpu/py3/2.6.0
 
 ## CODE EXECUTION
-srun python run_LODO_inference.py --dataset SHHS --percent 0.15 --norm PSDNorm
+srun python run_LODO_inference.py --dataset MROS --percent 0.15 --norm PSDNorm
