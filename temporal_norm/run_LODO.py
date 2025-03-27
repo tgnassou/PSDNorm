@@ -68,7 +68,7 @@ n_windows_stride = 10
 # batch_size = 512
 batch_size = 64
 batch_size_inference = batch_size * 16
-num_workers = 10
+num_workers = 40
 pin_memory = True
 persistent_workers = False
 
