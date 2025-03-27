@@ -20,10 +20,12 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         self,
         metadata,
         dict_filters=False,
+        target_transform=None,
     ):
         self.metadata = metadata.copy()
         self._rename_columns(self.metadata)
         self.dict_filters = dict_filters
+        self.target_transform = target_transform
 
     def _epoching(self, X, size):
         """Create a epoch of size `size` on the data `X`.
@@ -104,7 +106,10 @@ class MultiDomainDataset(torch.utils.data.Dataset):
             X = self._convolve(
                 X, self.dict_filters[(dataset_name, subject_id)]
             )
+
         y = np.array(y)
+        if self.target_transform:
+            y = self.target_transform(y)
 
         return X, y
 
@@ -157,9 +162,10 @@ def get_dataloader(
     dict_filters=None,
     randomize=True,
     balanced=None,
+    target_transform=None,
 ):
     metadata = filter_metadata(metadata, dataset_names, subject_ids)
-    dataset = MultiDomainDataset(metadata, dict_filters=dict_filters)
+    dataset = MultiDomainDataset(metadata, dict_filters=dict_filters, target_transform=target_transform)
     if balanced:
         probs = get_probs(metadata, dataset_names)
         n_sequences = int(len(metadata) / 10)
