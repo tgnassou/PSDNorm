@@ -222,10 +222,6 @@ for epoch in range(n_epochs):
         y_true.flatten(), y_pred.flatten(), average="weighted"
     )
 
-    print(f"End epoch train: {time.time() - time_start:.2f}s")
-
-    print(f"Start eval on val...")
-
     model.eval()
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
@@ -256,8 +252,6 @@ for epoch in range(n_epochs):
             y_true.flatten(), y_pred.flatten(), average="weighted"
         )
         std_f1_val = np.std(f1_val)
-
-        print(f"End of eval val: {time.time() - time_start:.2f}s")
 
     time_end = time.time()
     history.append(
