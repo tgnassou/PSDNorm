@@ -84,6 +84,10 @@ patience = 5
 
 # %%
 
+subject_ids = get_subject_ids(metadata, dataset_names)
+
+subject_id_target = subject_ids[dataset_target]
+
 best_model = torch.load(f"results_LODO/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt", weights_only=False)
 best_model = best_model.to(device)
 results_path = f"results_LODO/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
@@ -129,7 +133,7 @@ for n_subj in tqdm.tqdm(range(n_target)):
             "filter_size_input": None,
             "filter_size": filter_size,
             "depth_norm": depth_norm,
-            "n_subject_train": n_subject_tot,
+            # "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,
             "n_windows_stride": n_windows_stride,
