@@ -88,7 +88,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 10
+n_epochs = 5
 patience = 5
 
 # %%
@@ -186,7 +186,7 @@ for epoch in range(n_epochs):
     y_pred_all, y_true_all = list(), list()
 
     running_loss = 0.0
-    running_window = 100  # Number of batches for averaging loss
+    running_window = len(dataloader_train) // 20  # Number of batches for averaging loss
     for i, (batch_X, batch_y) in enumerate(
         tqdm(dataloader_train, desc="Training", unit="batch")
     ):
@@ -206,7 +206,7 @@ for epoch in range(n_epochs):
         y_true_all.append(batch_y.detach())
         train_loss[i] = loss_batch.item()
 
-        # Update tqdm progress bar every 10 batches with average loss
+        # Update tqdm progress bar every running_window batches with average loss
         running_loss += loss_batch.item()
         if (i + 1) % running_window == 0:
             avg_loss = running_loss / running_window
@@ -230,7 +230,9 @@ for epoch in range(n_epochs):
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
-        for i, (batch_X, batch_y) in enumerate(tqdm(dataloader_val)):
+        for i, (batch_X, batch_y) in enumerate(
+            tqdm(dataloader_val, desc="Validation", unit="batch")
+        ):
             batch_X = batch_X.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
 
@@ -318,7 +320,7 @@ folder_pickle.mkdir(parents=True, exist_ok=True)
 results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
 n_target = len(subject_id_target)
-for n_subj in range(n_target):
+for n_subj in tqdm(range(n_target), desc="Inference on target", unit="subject"):
     dataloader_target = get_dataloader(
         metadata,
         [dataset_target],
@@ -387,7 +389,11 @@ print("Target Inference Done")
 # %%
 results = []
 for dataset_source in dataset_sources:
-    for n_subj in range(len(subject_ids_test[dataset_source])):
+    for n_subj in tqdm(
+        range(len(subject_ids_test[dataset_source])),
+        desc=f"Inference on {dataset_source} (source)",
+        unit="subject"
+    ):
         dataloader_target = get_dataloader(
             metadata,
             [dataset_source],
