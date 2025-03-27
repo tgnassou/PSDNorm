@@ -15,7 +15,7 @@ import torch
 from torch import nn
 from torch.amp import autocast, GradScaler
 
-from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm
 
 import argparse
@@ -117,16 +117,18 @@ for dataset_name in dataset_sources:
     )
 
 # %%
+probs = get_probs(metadata, dataset_sources, alpha=0.5)
 dataloader_train = get_dataloader(
     metadata,
     dataset_sources,
     subject_ids_train,
     n_windows,
-    n_windows_stride,
+    1,
     batch_size,
     num_workers,
     pin_memory,
     persistent_workers,
+    balanced=True,
 )
 
 dataloader_val = get_dataloader(
@@ -139,6 +141,7 @@ dataloader_val = get_dataloader(
     num_workers,
     pin_memory,
     persistent_workers,
+    randomize=False,
 )
 
 print()

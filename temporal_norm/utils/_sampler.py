@@ -1,50 +1,13 @@
-# %%
 import numpy as np
-import pandas as pd
-from temporal_norm.utils._dataset import MultiDomainDataset
-# %%
-dataset_names = [
-    "ABC",
-    "CHAT",
-    "CFS",
-    "SHHS",
-    "HOMEPAP",
-    "CCSHS",
-    "MASS",
-    "PhysioNet",
-    "SOF",
-    "MROS",
-]
-metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
-
-
-# %%
-metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
-# %%
-# get lenght of dataset_names
-length = {}
-for dataset in dataset_names:
-    length[dataset] = metadata[metadata["dataset_name"] == dataset]["sub+session"].nunique()
-
-# %%
-# create probability of draw a dataset 
-probs = {}
-alpha = 0.5
-for dataset in dataset_names:
-    probs[dataset] = alpha / len(dataset_names) + (1 - alpha) * (1 / length[dataset]) / sum([1 / length[dataset] for dataset in dataset_names])
-# %%
-
-# pick a dataset
-dataset_n = np.random.choice(list(prob.keys()), p=list(prob.values()))
-
-# %%
-dataset = MultiDomainDataset(metadata, )
-# %%
-dataset.metadata.query("run == @dataset_n")
-# %%
+from torch.utils.data.sampler import Sampler
+from torch.utils.data.distributed import DistributedSampler
+from sklearn.utils import check_random_state
+from typing import Optional
 from braindecode.samplers import RecordingSampler
-class SequenceSampler(RecordingSampler):
-    """Sample sequences of consecutive windows.
+
+
+class BalancedSequenceSampler(RecordingSampler):
+    """Sample sequences of consecutive windows with balanced classes.
 
     Parameters
     ----------
@@ -54,26 +17,24 @@ class SequenceSampler(RecordingSampler):
         Number of consecutive windows in a sequence.
     n_windows_stride : int
         Number of windows between two consecutive sequences.
-    random : bool
-        If True, sample sequences randomly. If False, sample sequences in
-        order.
+    probs : dict
+        Dictionary with the probability of sampling each dataset.
     random_state : np.random.RandomState | int | None
         Random state.
+    n_sequences : int
+        Number of sequences to sample.
+
 
     Attributes
     ----------
     info : pd.DataFrame
         See RecordingSampler.
-    file_ids : np.ndarray of ints
-        Array of shape (n_sequences,) that indicates from which file each
-        sequence comes from. Useful e.g. to do self-ensembling.
     """
 
     def __init__(
-        self, metadata, n_windows, n_windows_stride, probs, randomize=False, random_state=None, n_sequences=int(1e6),
+        self, metadata, n_windows, n_windows_stride, probs, random_state=None, n_sequences=int(1e6),
     ):
         super().__init__(metadata, random_state=random_state)
-        self.randomize = randomize
         self.n_windows = n_windows
         self.n_sequences = n_sequences
         self.n_windows_stride = n_windows_stride
@@ -123,37 +84,11 @@ class SequenceSampler(RecordingSampler):
         return len(self.start_inds)
 
     def __iter__(self):
+        start_inds = self.start_inds.copy()
+        ind_dataset = self.ind_dataset.copy()
         for _ in range(self.n_sequences):
             dataset = self.sample_dataset()
-            start_inds = self.start_inds.copy()
-            ind_dataset = self.ind_dataset.copy()
             idx_selected = np.where(ind_dataset == dataset)[0]
-            id_selected = np.random.choice(idx_selected)
+            id_selected = self.rng.choice(idx_selected)
             start_ind = start_inds[id_selected]
-            yield tuple(range(start_ind, start_ind + self.n_windows)), dataset
-
-
-# %%
-sampler = SequenceSampler(
-    dataset.metadata,
-    n_windows=35,
-    n_windows_stride=1,
-    random_state=42,
-    randomize=False,
-    probs=probs,
-)
-
-# %%
-for inds in sampler:
-    print(inds)
-    if inds[1] == "SHHS":
-        break
-# %%
-[len(inds) for inds in sampler.start_inds]
-# %%
-sampler.rng.choice(list(sampler.probs.keys()), p=list(sampler.probs.values()))
-# %%
-list(sampler.probs.keys())
-# %%
-probs.keys()
-# %%
+            yield tuple(range(start_ind, start_ind + self.n_windows))

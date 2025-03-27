@@ -4,6 +4,7 @@ from ._dataset import (
     MultiDomainDataset,
     get_subject_ids,
     get_dataloader,
+    get_probs,
 )
 from ._create_metadata import create_data, create_metadata
 
@@ -17,4 +18,5 @@ __all__ = [
     "MultiDomainDataset",
     "get_subject_ids",
     "get_dataloader",
+    "get_probs",
 ]
