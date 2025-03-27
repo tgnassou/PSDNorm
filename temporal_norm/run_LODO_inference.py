@@ -133,7 +133,7 @@ for n_subj in tqdm.tqdm(range(n_target)):
             "filter_size_input": None,
             "filter_size": filter_size,
             "depth_norm": depth_norm,
-            "n_subject_train": n_subject_tot,
+            # "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,
             "n_windows_stride": n_windows_stride,
