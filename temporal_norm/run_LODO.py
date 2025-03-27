@@ -323,6 +323,8 @@ for n_subj in tqdm(range(n_target), desc="Inference on target", unit="subject"):
         n_windows_stride,
         batch_size_inference,
         num_workers,
+        pin_memory,
+        persistent_workers,
     )
     y_pred_all, y_true_all = list(), list()
     #  create one y_pred per moduels
@@ -396,6 +398,8 @@ for dataset_source in dataset_sources:
             n_windows_stride,
             batch_size,
             num_workers,
+            pin_memory,
+            persistent_workers,
         )
         y_pred_all, y_true_all = list(), list()
         best_model.eval()
