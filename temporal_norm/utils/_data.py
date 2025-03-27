@@ -41,17 +41,24 @@ def extract_epochs(raw, eog=False, emg=False, chunk_duration=30.0):
     )
 
     # create a new event_id that unifies stages 3 and 4
+    # event_id = {}
+    # if 1 in events[:, 2]:
+    #     event_id["Sleep stage W"] = 1
+    # if 2 in events[:, 2]:
+    #     event_id["Sleep stage 1"] = 2
+    # if 3 in events[:, 2]:
+    #     event_id["Sleep stage 2"] = 3
+    # if 4 in events[:, 2]:
+    #     event_id["Sleep stage 3/4"] = 4
+    # if 5 in events[:, 2]:
+    #     event_id["Sleep stage R"] = 5
+
+    classes = np.unique(events[:, 2])
+
     event_id = {}
-    if 1 in events[:, 2]:
-        event_id["Sleep stage W"] = 1
-    if 2 in events[:, 2]:
-        event_id["Sleep stage 1"] = 2
-    if 3 in events[:, 2]:
-        event_id["Sleep stage 2"] = 3
-    if 4 in events[:, 2]:
-        event_id["Sleep stage 3/4"] = 4
-    if 5 in events[:, 2]:
-        event_id["Sleep stage R"] = 5
+    event_name = ["Sleep stage W", "Sleep stage 1", "Sleep stage 2", "Sleep stage 3", "Sleep stage R"]
+    for c in classes:
+        event_id[event_name[c-1]] = c
 
     tmax = 30.0 - 1.0 / raw.info["sfreq"]  # tmax in included
     picks = mne.pick_types(raw.info, eeg=True, eog=eog, emg=emg)
