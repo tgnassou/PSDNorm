@@ -65,9 +65,8 @@ rng = check_random_state(seed)
 # dataloader
 n_windows = 35
 n_windows_stride = 10
-# batch_size = 512
 batch_size = 64
-batch_size_inference = batch_size * 16
+batch_size_inference = batch_size
 num_workers = 40
 pin_memory = True
 persistent_workers = False
