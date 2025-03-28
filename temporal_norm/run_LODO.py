@@ -187,6 +187,7 @@ print()
 print(f"Number of training batches: {len(dataloader_train)}")
 print(f"Number of validation batches: {len(dataloader_val)}")
 print(f"Number of target batches: {len(dataloader_target)}")
+print()
 
 
 # %%
@@ -202,6 +203,9 @@ model = USleepNorm(
     depth_norm=depth_norm,
     norm=norm,
 )
+num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Trainable parameters: {num_trainable_params:,}")
+
 # model = torch.compile(model)
 
 model.to(device)
