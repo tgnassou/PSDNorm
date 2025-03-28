@@ -14,6 +14,7 @@ import pandas as pd
 
 from temporal_norm.config import DATA_H5_PATH
 from temporal_norm.utils._sampler import BalancedSequenceSampler
+from temporal_norm.utils._functions import get_probs
 
 
 class MultiDomainDataset(torch.utils.data.Dataset):
@@ -21,10 +22,12 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         self,
         metadata,
         dict_filters=False,
+        target_transform=None,
     ):
         self.metadata = metadata.copy()
         self._rename_columns(self.metadata)
         self.dict_filters = dict_filters
+        self.target_transform = target_transform
 
         # Convert metadata columns to NumPy arrays for fast indexing
         self.runs = self.metadata["run"].values
@@ -131,6 +134,8 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
         y = self.targets[indices]
 
+        if self.target_transform:
+            y = self.target_transform(y)
         return X, y, subject, session
 
     def __getitem__(self, idx):
@@ -184,12 +189,17 @@ def get_dataloader(
     dict_filters=None,
     randomize=True,
     balanced=None,
+    target_transform=None,
+    n_sequences_balanced=None,
 ):
     metadata = filter_metadata(metadata, dataset_names, subject_ids)
-    dataset = MultiDomainDataset(metadata, dict_filters=dict_filters)
+    dataset = MultiDomainDataset(metadata, dict_filters=dict_filters, target_transform=target_transform)
     if balanced:
         probs = get_probs(metadata, dataset_names)
-        n_sequences = int(len(metadata) / 10)
+        if n_sequences_balanced:
+            n_sequences = n_sequences_balanced
+        else:
+            n_sequences = int(len(metadata) / 10)
         sampler = BalancedSequenceSampler(
             dataset.metadata,
             n_windows=n_windows,
@@ -214,15 +224,3 @@ def get_dataloader(
         persistent_workers=persistent_workers,
     )
     return dataloader
-
-
-def get_probs(metadata, dataset_names, alpha=0.5):
-    metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
-    length = {}
-    for dataset in dataset_names:
-        length[dataset] = metadata[metadata["dataset_name"] == dataset]["sub+session"].nunique()
-
-    probs = {}
-    for dataset in dataset_names:
-        probs[dataset] = alpha / len(dataset_names) + (1 - alpha) * (1 / length[dataset]) / sum([1 / length[dataset] for dataset in dataset_names])
-    return probs

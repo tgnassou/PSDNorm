@@ -4,13 +4,14 @@ from ._dataset import (
     MultiDomainDataset,
     get_subject_ids,
     get_dataloader,
-    get_probs,
 )
+    
 from ._create_metadata import create_data, create_metadata
+from ._functions import get_center_label, get_probs
+
 
 __all__ = [
     "load_dataset",
-    "HierachicalDataset",
     "read_raw_bids_with_preprocessing",
     "create_data",
     "create_metadata",
@@ -19,4 +20,5 @@ __all__ = [
     "get_subject_ids",
     "get_dataloader",
     "get_probs",
+    "get_center_label",
 ]

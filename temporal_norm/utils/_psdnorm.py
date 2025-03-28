@@ -106,6 +106,11 @@ class PSDNorm(nn.Module):
             )
 
     def forward(self, x):
+        if x.dim() == 4:
+            squeeze = True
+            x = x.squeeze(2)
+        else:
+            squeeze = False
         # x: (B, C, T)
         # centered x
         if self.center:
@@ -151,4 +156,6 @@ class PSDNorm(nn.Module):
             ]
         )
 
+        if squeeze:
+            x_filtered = x_filtered.unsqueeze(2)
         return x_filtered
