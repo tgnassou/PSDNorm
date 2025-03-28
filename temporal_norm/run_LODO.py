@@ -91,7 +91,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 5
+n_epochs = 1
 patience = 5
 
 # idx center of the window
@@ -109,18 +109,21 @@ dataset_sources.remove(dataset_target)
 
 # %%
 subject_ids_train, subject_ids_val = dict(), dict()
-subject_ids_test = dict()
 n_subject_tot = 0
-print("Datasets used for training (and validation):")
+
+print("Datasets used for training and validation:")
 for dataset_name in dataset_sources:
-    subject_ids_train_val, subject_ids_test[dataset_name] = train_test_split(
-        subject_ids[dataset_name], test_size=0.2, random_state=rng
-    )
-    n_subjects = int(percentage * len(subject_ids_train_val))
-    n_subjects = 2 if n_subjects < 2 else n_subjects
+    subject_ids_all = subject_ids[dataset_name]
+    n_subjects = int(percentage * len(subject_ids_all))
+    n_subjects = max(n_subjects, 2)
     n_subject_tot += n_subjects
+
     print(f"Dataset: {dataset_name}, n_subjects: {n_subjects}")
-    subject_ids_dataset = rng.choice(subject_ids_train_val, n_subjects, replace=False)
+
+    # Randomly sample the subjects to use
+    subject_ids_dataset = rng.choice(subject_ids_all, n_subjects, replace=False)
+
+    # Split into train/val
     subject_ids_train[dataset_name], subject_ids_val[dataset_name] = train_test_split(
         subject_ids_dataset, test_size=0.2, random_state=seed
     )
@@ -175,13 +178,16 @@ dataloader_target = get_dataloader(
 
 
 print()
-print(f"Number of subjects: {n_subject_tot}")
+print(f"Number of source subjects: {n_subject_tot}")
 print(f"Number of training subjects: {sum([len(v) for v in subject_ids_train.values()])}")
 print(f"Number of validation subjects: {sum([len(v) for v in subject_ids_val.values()])}")
-print(f"Number of testing subjects: {sum([len(v) for v in subject_ids_test.values()])}")
+print(f"Number of target subjects: {len(subject_id_target)}")
+print()
 
 print(f"Number of training batches: {len(dataloader_train)}")
 print(f"Number of validation batches: {len(dataloader_val)}")
+print(f"Number of target batches: {len(dataloader_target)}")
+
 
 # %%
 
