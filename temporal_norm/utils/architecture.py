@@ -623,15 +623,11 @@ class _SmallCNN(nn.Module):
         self.pool2 = nn.MaxPool2d(kernel_size=(1, 4), stride=(1, 4), padding=(0, 1))
 
     def forward(self, x):
-        print("layer 1", x.shape)
         x = x[:, :, :1, :]
         x = self.conv1(x)
-        print("layer 2", x.shape)
         x = self.dropout(self.pool1(x))
         x = self.conv2(x)
-        print("layer 3", x.shape)
         x = self.conv3(x)
-        print("layer 4", x.shape)
         x = self.conv4(x)
         x = self.pool2(x)
         return x

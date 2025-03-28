@@ -13,7 +13,8 @@ import torch
 from torch import nn
 
 from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
-from temporal_norm.utils.architecture import USleepNorm
+from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet
+from temporal_norm.utils import get_center_label
 
 import argparse
 
@@ -23,10 +24,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument("--model_name", type=str, default="USleep")
+parser.add_argument("--balanced", action="store_true")
 
 args = parser.parse_args()
 
-
+percentage = args.percent
+norm = args.norm
+dataset_target = args.dataset
+model_name = args.model_name
+balanced = args.balanced
 # %%
 dataset_names = [
     "ABC",
@@ -43,9 +50,6 @@ dataset_names = [
 metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
 
 # %%
-percentage = args.percent
-norm = args.norm
-dataset_target = args.dataset
 
 print(f"Percentage: {percentage}")
 modules = []
@@ -77,7 +81,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 30
+n_epochs = 1
 patience = 5
 
 # %%
@@ -115,7 +119,8 @@ dataloader_train = get_dataloader(
     1,
     batch_size,
     num_workers,
-    balanced=True,
+    balanced=balanced,
+    target_transform=get_center_label if model_name == "DeepSleepNet" else None,
 )
 
 dataloader_val = get_dataloader(
@@ -127,20 +132,32 @@ dataloader_val = get_dataloader(
     batch_size,
     num_workers,
     randomize=False,
+    target_transform=get_center_label if model_name == "DeepSleepNet" else None,
 )
-# %%
 
-model = USleepNorm(
-    n_chans=in_chans,
-    sfreq=100,
-    depth=12,
-    with_skip_connection=True,
-    n_outputs=n_classes,
-    n_times=input_size_samples,
-    filter_size=filter_size,
-    depth_norm=depth_norm,
-    norm=norm,
-)
+# %%
+if model_name == "USleep":
+    model = USleepNorm(
+        n_chans=in_chans,
+        sfreq=100,
+        depth=12,
+        with_skip_connection=True,
+        n_outputs=n_classes,
+        n_times=input_size_samples,
+        filter_size=filter_size,
+        depth_norm=depth_norm,
+        norm=norm,
+    )
+
+elif model_name == "DeepSleepNet":
+    model = DeepSleepNet(
+        n_chans=in_chans,
+        sfreq=100,
+        n_outputs=n_classes,
+        n_times=input_size_samples,
+        filter_size=filter_size,
+        norm=norm,
+    )
 
 model.to(device)
 criterion = nn.CrossEntropyLoss()
@@ -171,11 +188,14 @@ for epoch in range(n_epochs):
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
         train_loss[i] = loss_batch.item()
-    
+
     y_pred_all = [y.cpu().numpy() for y in y_pred_all]
     y_true_all = [y.cpu().numpy() for y in y_true_all]
-    y_pred = np.concatenate(y_pred_all)[:, 10:25]
-    y_true = np.concatenate(y_true_all)[:, 10:25]
+    y_pred = np.concatenate(y_pred_all)
+    y_true = np.concatenate(y_true_all)
+    if model_name == "USleep":
+        y_pred = y_pred[:, 10:25]
+        y_true = y_true[:, 10:25]
     perf = accuracy_score(y_true.flatten(), y_pred.flatten())
     f1 = f1_score(
         y_true.flatten(), y_pred.flatten(), average="weighted"
@@ -195,12 +215,15 @@ for epoch in range(n_epochs):
             y_pred_all.append(output.argmax(axis=1).detach())
             y_true_all.append(batch_y.detach())
             val_loss[i] = loss_batch.item()
-        
+
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
         y_true_all = [y.cpu().numpy() for y in y_true_all]
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25]
-        y_true = np.concatenate(y_true_all)[:, 10:25]
+        y_pred = np.concatenate(y_pred_all)
+        y_true = np.concatenate(y_true_all)
+        if model_name == "USleep":
+            y_pred = y_pred[:, 10:25]
+            y_true = y_true[:, 10:25]
         perf_val = accuracy_score(y_true.flatten(), y_pred.flatten())
         std_val = np.std(perf_val)
         f1_val = f1_score(
@@ -269,6 +292,8 @@ for n_subj in range(n_target):
         n_windows_stride,
         batch_size,
         num_workers,
+        randomize=False,
+        target_transform=get_center_label if model_name == "DeepSleepNet" else None,
     )
     y_pred_all, y_true_all = list(), list()
     #  create one y_pred per moduels
@@ -287,8 +312,11 @@ for n_subj in range(n_target):
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
         y_true_all = [y.cpu().numpy() for y in y_true_all]
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-        y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
+        y_pred = np.concatenate(y_pred_all)
+        y_t = np.concatenate(y_true_all)
+        if model_name == "USleep":
+            y_pred = y_pred[:, 10:25]
+            y_t = y_t[:, 10:25]
     results.append(
         {
             "subject": n_subj,
@@ -309,9 +337,10 @@ for n_subj in range(n_target):
             "n_epochs": n_epochs,
             "patience": patience,
             "percentage": percentage,
+            "model_name": model_name,
             # add metrics
-            "y_pred": y_pred,
-            "y_true": y_t,
+            "y_pred": y_pred.flatten(),
+            "y_true": y_t.flatten(),
         }
     )
 
@@ -336,6 +365,8 @@ for dataset_source in dataset_sources:
             n_windows_stride,
             batch_size,
             num_workers,
+            randomize=False,
+            target_transform=get_center_label if model_name == "DeepSleepNet" else None,
         )
         y_pred_all, y_true_all = list(), list()
         best_model.eval()
@@ -351,8 +382,11 @@ for dataset_source in dataset_sources:
             y_pred_all = [y.cpu().numpy() for y in y_pred_all]
             y_true_all = [y.cpu().numpy() for y in y_true_all]
 
-            y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-            y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
+            y_pred = np.concatenate(y_pred_all)
+            y_t = np.concatenate(y_true_all)
+            if model_name == "USleep":
+                y_pred = y_pred[:, 10:25]
+                y_t = y_t[:, 10:25]
 
         results.append(
             {
@@ -374,10 +408,10 @@ for dataset_source in dataset_sources:
                 "n_epochs": n_epochs,
                 "patience": patience,
                 "percentage": percentage,
-                "norm": norm,
+                "model_name": model_name,
                 # add metrics
-                "y_pred": y_pred,
-                "y_true": y_t,
+                "y_pred": y_pred.flatten(),
+                "y_true": y_t.flatten(),
             }
         )
 
