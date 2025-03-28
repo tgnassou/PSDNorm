@@ -125,28 +125,30 @@ for dataset_name in dataset_sources:
 # %%
 probs = get_probs(metadata, dataset_sources, alpha=0.5)
 dataloader_train = get_dataloader(
-    metadata,
-    dataset_sources,
-    subject_ids_train,
-    n_windows,
-    1,
-    batch_size,
-    num_workers,
-    pin_memory,
-    persistent_workers,
-    balanced=True,
+    metadata=metadata,
+    dataset_names=dataset_sources,
+    subject_ids=subject_ids_train,
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
+    randomize=True,
 )
 
 dataloader_val = get_dataloader(
-    metadata,
-    dataset_sources,
-    subject_ids_val,
-    n_windows,
-    n_windows_stride,
-    batch_size_inference,
-    num_workers,
-    pin_memory,
-    persistent_workers,
+    metadata=metadata,
+    dataset_names=dataset_sources,
+    subject_ids=subject_ids_val,
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size_inference,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
     randomize=False,
 )
 
@@ -331,7 +333,9 @@ dataloader_target = get_dataloader(
     batch_size=batch_size_inference,
     num_workers=num_workers,
     pin_memory=pin_memory,
-    persistent_workers=True,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
+    randomize=False,
 )
 
 # Accumulate predictions and targets on GPU per subject
