@@ -2,6 +2,7 @@ import numpy as np
 from pathlib import Path
 import h5py
 from functools import lru_cache
+import warnings
 
 import torch
 from torch.utils.data import DataLoader
@@ -101,7 +102,6 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         if not (np.all(datasets == datasets[0]) and
                 np.all(subjects == subjects[0]) and
                 np.all(sessions == sessions[0])):
-            import warnings
             warnings.warn(
                 f"Be careful, indices {indices} do not correspond to the same subject/session."
                 "This may lead to unexpected behavior."
@@ -124,7 +124,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
             first_sample = sample_indices[0]
             last_sample = sample_indices[-1] + 1
         else:
-            # print("Non-contiguous samples detected. This should not happen.")
+            warnings.warn("Non-contiguous samples detected. THIS SHOULD NOT HAPPEN.")
             first_sample = np.min(sample_indices)
             last_sample = first_sample + len(sample_indices)
 

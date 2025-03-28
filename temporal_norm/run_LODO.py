@@ -196,6 +196,7 @@ print()
 print(f"Number of training batches: {len(dataloader_train)}")
 print(f"Number of validation batches: {len(dataloader_val)}")
 print(f"Number of target batches: {len(dataloader_target)}")
+print()
 
 # %%
 if model_name == "USleep":
@@ -220,6 +221,8 @@ elif model_name == "DeepSleepNet":
         filter_size=filter_size,
         norm=norm,
     )
+num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Trainable parameters: {num_trainable_params:,}")
 
 model.to(device)
 criterion = nn.CrossEntropyLoss()
