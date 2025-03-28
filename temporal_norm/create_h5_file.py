@@ -1,28 +1,35 @@
-# %%
 import h5py
 import numpy as np
 import os
 import argparse
-# %%
-# Create an HDF5 file
-# make parser
+from tqdm import tqdm
+
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, help="Path to the data folder")
+parser.add_argument("--dataset", type=str, help="Dataset name")
 args = parser.parse_args()
 
 DATA_PATH = f"/raid/derivatives/{args.dataset}/npy"
+OUT_PATH = f"/raid/derivatives/h5_dataset_V2/{args.dataset}.h5"
 
-# Create an HDF5 file
-with h5py.File(f"/raid/derivatives/h5_dataset/{args.dataset}.h5", "w") as f:
-    # get all subfolfer of DATA_PATH
-    for subject in os.listdir(DATA_PATH):
-        print(f"Processing {subject}")
-        for session in os.listdir(f"{DATA_PATH}/{subject}"):
-            for file in os.listdir(f"{DATA_PATH}/{subject}/{session}"):
-                if file.endswith(".npy"):
-                    name = file.split(".")[0][2:]
-                    data = np.load(f"{DATA_PATH}/{subject}/{session}/{file}")
-                    f.create_dataset(f"{subject}/{session}/{name}", data=data, compression="gzip")
+with h5py.File(OUT_PATH, "w") as f:
+    for subject in tqdm(sorted(os.listdir(DATA_PATH))):
+        tqdm.write(f"Processing {subject}")
+        for session in sorted(os.listdir(f"{DATA_PATH}/{subject}")):
+            session_path = f"{DATA_PATH}/{subject}/{session}"
+            samples = sorted([
+                file for file in os.listdir(session_path) if file.endswith(".npy")
+            ], key=lambda x: int(x.split(".")[0][2:]))
 
-print("Data successfully saved in hierarchical HDF5 format!")
-# %%
+            # Load all session samples into memory
+            data = np.stack(
+                [np.load(f"{session_path}/{file}") for file in samples],
+                axis=0
+            )
+
+            # Store as a single large dataset per session
+            f.create_dataset(
+                f"{subject}/{session}",
+                data=data,
+                compression="gzip",
+                chunks=(128, data.shape[1], data.shape[2])
+            )

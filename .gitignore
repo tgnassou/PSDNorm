@@ -1,3 +1,9 @@
+datasets/
+datasets_V2/
+temporal_norm/results
+temporal_norm/results_LODO
+temporal_norm/slurm_logs
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

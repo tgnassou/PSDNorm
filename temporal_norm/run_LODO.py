@@ -1,6 +1,9 @@
 # %%
 import time
+from collections import defaultdict
 import copy
+from pathlib import Path
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -11,6 +14,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 from torch import nn
+from torch.amp import autocast, GradScaler
 
 from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm
@@ -23,9 +27,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument("--use_amp", action="store_true")
+parser.add_argument("--balanced", action="store_true")
+parser.add_argument("--num_workers", type=int, default=40)
 
 args = parser.parse_args()
-
+use_amp = args.use_amp
+if use_amp:
+    print("BE CAREFUL! AMP is enabled.")
 
 # %%
 dataset_names = [
@@ -58,14 +67,19 @@ rng = check_random_state(seed)
 
 # dataloader
 n_windows = 35
-n_windows_stride = 10
+n_windows_stride = 21
 batch_size = 64
-num_workers = 40
+batch_size_inference = batch_size
+num_workers = args.num_workers
+pin_memory = True
+persistent_workers = False
+balanced = args.balanced
 
 # model
 in_chans = 2
 n_classes = 5
 input_size_samples = 3000
+lr = 1e-3
 
 if norm == "BatchNorm":
     filter_size = None
@@ -77,8 +91,13 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 30
+n_epochs = 3
 patience = 5
+
+# idx center of the window
+assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
+first_window_idx = (n_windows - n_windows_stride) // 2
+last_window_idx = first_window_idx + n_windows_stride
 
 # %%
 subject_ids = get_subject_ids(metadata, dataset_names)
@@ -90,44 +109,86 @@ dataset_sources.remove(dataset_target)
 
 # %%
 subject_ids_train, subject_ids_val = dict(), dict()
-subject_ids_test = dict()
 n_subject_tot = 0
+
+print("Datasets used for training and validation:")
 for dataset_name in dataset_sources:
-    subject_ids_train_val, subject_ids_test[dataset_name] = train_test_split(
-        subject_ids[dataset_name], test_size=0.2, random_state=rng
-    )
-    n_subjects = int(percentage * len(subject_ids_train_val))
-    n_subjects = 2 if n_subjects < 2 else n_subjects
+    subject_ids_all = subject_ids[dataset_name]
+    n_subjects = int(percentage * len(subject_ids_all))
+    n_subjects = max(n_subjects, 2)
     n_subject_tot += n_subjects
+
     print(f"Dataset: {dataset_name}, n_subjects: {n_subjects}")
-    subject_ids_dataset = rng.choice(subject_ids_train_val, n_subjects, replace=False)
+
+    # Randomly sample the subjects to use
+    subject_ids_dataset = rng.choice(subject_ids_all, n_subjects, replace=False)
+
+    # Split into train/val
     subject_ids_train[dataset_name], subject_ids_val[dataset_name] = train_test_split(
         subject_ids_dataset, test_size=0.2, random_state=seed
     )
 
 # %%
 probs = get_probs(metadata, dataset_sources, alpha=0.5)
+
+# Source train dataloader
 dataloader_train = get_dataloader(
-    metadata,
-    dataset_sources,
-    subject_ids_train,
-    n_windows,
-    1,
-    batch_size,
-    num_workers,
-    balanced=True,
+    metadata=metadata,
+    dataset_names=dataset_sources,
+    subject_ids=subject_ids_train,
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
+    randomize=True,
 )
 
+# Source val dataloader
 dataloader_val = get_dataloader(
-    metadata,
-    dataset_sources,
-    subject_ids_val,
-    n_windows,
-    n_windows_stride,
-    batch_size,
-    num_workers,
+    metadata=metadata,
+    dataset_names=dataset_sources,
+    subject_ids=subject_ids_val,
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size_inference,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
     randomize=False,
 )
+
+# Target dataloader
+dataloader_target = get_dataloader(
+    metadata=metadata,
+    dataset_names=[dataset_target],
+    subject_ids={dataset_target: subject_id_target},
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size_inference,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
+    randomize=False,
+)
+
+
+print()
+print(f"Number of source subjects: {n_subject_tot}")
+print(f"Number of training subjects: {sum([len(v) for v in subject_ids_train.values()])}")
+print(f"Number of validation subjects: {sum([len(v) for v in subject_ids_val.values()])}")
+print(f"Number of target subjects: {len(subject_id_target)}")
+print()
+
+print(f"Number of training batches: {len(dataloader_train)}")
+print(f"Number of validation batches: {len(dataloader_val)}")
+print(f"Number of target batches: {len(dataloader_target)}")
+
+
 # %%
 
 model = USleepNorm(
@@ -141,41 +202,59 @@ model = USleepNorm(
     depth_norm=depth_norm,
     norm=norm,
 )
+# model = torch.compile(model)
 
 model.to(device)
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 # %%
 history = []
 
+print()
 print("Start training")
+scaler = GradScaler(device=device, enabled=use_amp)
 min_val_loss = np.inf
 for epoch in range(n_epochs):
+    print()
+    print(f"Epoch: {epoch}")
     time_start = time.time()
     model.train()
     train_loss = np.zeros(len(dataloader_train))
     y_pred_all, y_true_all = list(), list()
-    for i, (batch_X, batch_y) in enumerate(dataloader_train):
+
+    running_loss = 0.0
+    running_window = len(dataloader_train) // 20  # Number of batches for averaging loss
+    for i, (batch_X, batch_y, _, _) in enumerate(
+        tqdm(dataloader_train, desc="Training", unit="batch")
+    ):
         optimizer.zero_grad()
-        batch_X = batch_X.to(device)
-        batch_y = batch_y.to(device)
+        batch_X = batch_X.to(device, non_blocking=True)
+        batch_y = batch_y.to(device, non_blocking=True)
 
-        output = model(batch_X)
+        with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+            output = model(batch_X)
+            loss_batch = criterion(output, batch_y)
 
-        loss_batch = criterion(output, batch_y)
-
-        loss_batch.backward()
-        optimizer.step()
+        scaler.scale(loss_batch).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
         train_loss[i] = loss_batch.item()
-    
+
+        # Update tqdm progress bar every running_window batches with average loss
+        running_loss += loss_batch.item()
+        if (i + 1) % running_window == 0:
+            avg_loss = running_loss / running_window
+            tqdm.write(f"Batch {i+1}/{len(dataloader_train)}, Avg Loss: {avg_loss:.3f}")
+            running_loss = 0.0
+
     y_pred_all = [y.cpu().numpy() for y in y_pred_all]
     y_true_all = [y.cpu().numpy() for y in y_true_all]
-    y_pred = np.concatenate(y_pred_all)[:, 10:25]
-    y_true = np.concatenate(y_true_all)[:, 10:25]
+    y_pred = np.concatenate(y_pred_all)[:, first_window_idx:last_window_idx]
+    y_true = np.concatenate(y_true_all)[:, first_window_idx:last_window_idx]
     perf = accuracy_score(y_true.flatten(), y_pred.flatten())
     f1 = f1_score(
         y_true.flatten(), y_pred.flatten(), average="weighted"
@@ -185,22 +264,26 @@ for epoch in range(n_epochs):
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
-        for i, (batch_X, batch_y) in enumerate(dataloader_val):
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
-            output = model(batch_X)
+        for i, (batch_X, batch_y, _, _) in enumerate(
+            tqdm(dataloader_val, desc="Validation", unit="batch")
+        ):
+            batch_X = batch_X.to(device, non_blocking=True)
+            batch_y = batch_y.to(device, non_blocking=True)
+
+            with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+                output = model(batch_X)
 
             loss_batch = criterion(output, batch_y)
 
             y_pred_all.append(output.argmax(axis=1).detach())
             y_true_all.append(batch_y.detach())
             val_loss[i] = loss_batch.item()
-        
+
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
         y_true_all = [y.cpu().numpy() for y in y_true_all]
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25]
-        y_true = np.concatenate(y_true_all)[:, 10:25]
+        y_pred = np.concatenate(y_pred_all)[:, first_window_idx:last_window_idx]
+        y_true = np.concatenate(y_true_all)[:, first_window_idx:last_window_idx]
         perf_val = accuracy_score(y_true.flatten(), y_pred.flatten())
         std_val = np.std(perf_val)
         f1_val = f1_score(
@@ -248,51 +331,56 @@ for epoch in range(n_epochs):
         if patience_counter > patience:
             print("Early stopping")
             break
-history_path = f"results/history/history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+
+folder = Path("results_LODO")
+folder.mkdir(parents=True, exist_ok=True)
+folder_history = folder / "history"
+folder_history.mkdir(parents=True, exist_ok=True)
+history_path = folder_history / f"history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
-torch.save(best_model, f"results/models/models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+folder_model = folder / "models"
+folder_model.mkdir(parents=True, exist_ok=True)
+torch.save(best_model, folder_model / f"models_{norm}_{percentage}_LODO_{dataset_target}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), f"results/models/optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), folder_model / f"optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
-results_path = f"results/pickles/results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+folder_pickle = folder / "pickles"
+folder_pickle.mkdir(parents=True, exist_ok=True)
+results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
-n_target = len(subject_id_target)
-for n_subj in range(n_target):
-    dataloader_target = get_dataloader(
-        metadata,
-        [dataset_target],
-        {dataset_target: subject_id_target[n_subj:n_subj+1]},
-        n_windows,
-        n_windows_stride,
-        batch_size,
-        num_workers,
-    )
-    y_pred_all, y_true_all = list(), list()
-    #  create one y_pred per moduels
+# Accumulate predictions and targets on GPU per subject
+results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
 
-    best_model.eval()
-    with torch.no_grad():
-        for i, (batch_X, batch_y) in enumerate(dataloader_target):
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
+best_model.eval()
+with torch.no_grad():
+    for batch_X, batch_y, batch_sub_id, batch_session_id in tqdm(
+        dataloader_target, desc="Inference on target", unit="batch"
+    ):
+        batch_X = batch_X.to(device, non_blocking=True)
+        batch_y = batch_y.to(device, non_blocking=True)
+        batch_sub_id = batch_sub_id.to(device, non_blocking=True)
 
+        with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
             output = best_model(batch_X)
 
-            y_pred_all.append(output.argmax(axis=1).detach())
-            y_true_all.append(batch_y.detach())
+        preds = output.argmax(dim=1)
 
-        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-        y_true_all = [y.cpu().numpy() for y in y_true_all]
+        # Gather predictions per subject
+        for y_t, y_p, subj in zip(batch_y, preds, batch_sub_id):
+            results_by_subject[int(subj.item())]["y_true"].append(y_t[first_window_idx:last_window_idx])
+            results_by_subject[int(subj.item())]["y_pred"].append(y_p[first_window_idx:last_window_idx])
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-        y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
+results = []
+for subj_id, data in results_by_subject.items():
+    y_pred_tensor = torch.cat(data["y_pred"])
+    y_true_tensor = torch.cat(data["y_true"])
+
     results.append(
         {
-            "subject": n_subj,
-            # add hps
+            "subject": subj_id,
             "seed": seed,
             "dataset": dataset_target,
             "dataset_type": "target",
@@ -305,13 +393,13 @@ for n_subj in range(n_target):
             "n_windows": n_windows,
             "n_windows_stride": n_windows_stride,
             "batch_size": batch_size,
+            "batch_size_inference": batch_size_inference,
             "num_workers": num_workers,
             "n_epochs": n_epochs,
             "patience": patience,
             "percentage": percentage,
-            # add metrics
-            "y_pred": y_pred,
-            "y_true": y_t,
+            "y_pred": y_pred_tensor.cpu().numpy().flatten(),
+            "y_true": y_true_tensor.cpu().numpy().flatten(),
         }
     )
 
@@ -323,69 +411,3 @@ df_results = pd.concat((df_results, pd.DataFrame(results)))
 df_results.to_pickle(results_path)
 
 print("Target Inference Done")
-
-# %%
-results = []
-for dataset_source in dataset_sources:
-    for n_subj in range(len(subject_ids_test[dataset_source])):
-        dataloader_target = get_dataloader(
-            metadata,
-            [dataset_source],
-            {dataset_source: subject_ids_test[dataset_source][n_subj:n_subj+1]},
-            n_windows,
-            n_windows_stride,
-            batch_size,
-            num_workers,
-        )
-        y_pred_all, y_true_all = list(), list()
-        best_model.eval()
-        with torch.no_grad():
-            for i, (batch_X, batch_y) in enumerate(dataloader_target):
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
-
-                output = best_model(batch_X)
-                y_pred_all.append(output.argmax(axis=1).detach())
-                y_true_all.append(batch_y.detach())
-
-            y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-            y_true_all = [y.cpu().numpy() for y in y_true_all]
-
-            y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-            y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
-
-        results.append(
-            {
-                "subject": n_subj,
-                # add hps
-                "seed": seed,
-                "dataset": dataset_source,
-                "dataset_type": "source",
-                "norm": norm,
-                "filter_size_input": None,
-                "filter_size": filter_size,
-                "depth_norm": depth_norm,
-                "n_subject_train": n_subject_tot,
-                "n_subject_test": len(subject_ids_test[dataset_source]),
-                "n_windows": n_windows,
-                "n_windows_stride": n_windows_stride,
-                "batch_size": batch_size,
-                "num_workers": num_workers,
-                "n_epochs": n_epochs,
-                "patience": patience,
-                "percentage": percentage,
-                "norm": norm,
-                # add metrics
-                "y_pred": y_pred,
-                "y_true": y_t,
-            }
-        )
-
-try:
-    df_results = pd.read_pickle(results_path)
-except FileNotFoundError:
-    df_results = pd.DataFrame()
-df_results = pd.concat((df_results, pd.DataFrame(results)))
-df_results.to_pickle(results_path)
-
-print("Source Inference Done")
