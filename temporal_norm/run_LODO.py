@@ -51,7 +51,7 @@ dataset_names = [
     "ABC",
     "CHAT",
     "CFS",
-    # "SHHS",
+    "SHHS",
     "HOMEPAP",
     "CCSHS",
     "MASS",
@@ -100,7 +100,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 1
+n_epochs = 5
 patience = 5
 assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
 first_window_idx = (n_windows - n_windows_stride) // 2
