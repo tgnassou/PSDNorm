@@ -28,6 +28,8 @@ parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument("--norm", type=str, default="PSDNorm")
 parser.add_argument("--use_amp", action="store_true")
+parser.add_argument("--balanced", action="store_true")
+parser.add_argument("--num_workers", type=int, default=40)
 
 args = parser.parse_args()
 use_amp = args.use_amp
@@ -68,9 +70,10 @@ n_windows = 35
 n_windows_stride = 21
 batch_size = 64
 batch_size_inference = batch_size
-num_workers = 40
+num_workers = args.num_workers
 pin_memory = True
 persistent_workers = False
+balanced = args.balanced
 
 # model
 in_chans = 2
@@ -124,6 +127,8 @@ for dataset_name in dataset_sources:
 
 # %%
 probs = get_probs(metadata, dataset_sources, alpha=0.5)
+
+# Source train dataloader
 dataloader_train = get_dataloader(
     metadata=metadata,
     dataset_names=dataset_sources,
@@ -138,6 +143,7 @@ dataloader_train = get_dataloader(
     randomize=True,
 )
 
+# Source val dataloader
 dataloader_val = get_dataloader(
     metadata=metadata,
     dataset_names=dataset_sources,
@@ -151,6 +157,22 @@ dataloader_val = get_dataloader(
     balanced=balanced,
     randomize=False,
 )
+
+# Target dataloader
+dataloader_target = get_dataloader(
+    metadata=metadata,
+    dataset_names=[dataset_target],
+    subject_ids={dataset_target: subject_id_target},
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size_inference,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=persistent_workers,
+    balanced=balanced,
+    randomize=False,
+)
+
 
 print()
 print(f"Number of subjects: {n_subject_tot}")
@@ -322,21 +344,6 @@ results = []
 folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
 results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
-
-# Initialize one dataloader for all subjects at once
-dataloader_target = get_dataloader(
-    metadata=metadata,
-    dataset_names=[dataset_target],
-    subject_ids={dataset_target: subject_id_target},
-    n_windows=n_windows,
-    n_windows_stride=n_windows_stride,
-    batch_size=batch_size_inference,
-    num_workers=num_workers,
-    pin_memory=pin_memory,
-    persistent_workers=persistent_workers,
-    balanced=balanced,
-    randomize=False,
-)
 
 # Accumulate predictions and targets on GPU per subject
 results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
