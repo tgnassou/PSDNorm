@@ -51,7 +51,7 @@ dataset_names = [
     "ABC",
     "CHAT",
     "CFS",
-    # "SHHS",
+    "SHHS",
     "HOMEPAP",
     "CCSHS",
     "MASS",
@@ -99,8 +99,9 @@ elif norm == "PSDNorm":
     depth_norm = 3
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
+
 # training
-n_epochs = 1
+n_epochs = 5
 patience = 5
 assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
 first_window_idx = (n_windows - n_windows_stride) // 2
@@ -144,7 +145,7 @@ dataloader_train = get_dataloader(
     dataset_names=dataset_sources,
     subject_ids=subject_ids_train,
     n_windows=n_windows,
-    n_windows_stride=n_windows_stride, # TODO choose stride for balanced
+    n_windows_stride=n_windows_stride,
     batch_size=batch_size,
     num_workers=num_workers,
     pin_memory=pin_memory,

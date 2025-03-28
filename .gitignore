@@ -1,8 +1,10 @@
+dataset/
 datasets/
 datasets_V2/
 temporal_norm/results
 temporal_norm/results_LODO
 temporal_norm/slurm_logs
+to_delete*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
