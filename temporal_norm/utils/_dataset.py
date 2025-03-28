@@ -131,7 +131,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
         y = self.targets[indices]
 
-        return X, y
+        return X, y, subject, session
 
     def __getitem__(self, idx):
         if not isinstance(idx, Iterable):
