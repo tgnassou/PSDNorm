@@ -195,7 +195,7 @@ for epoch in range(n_epochs):
 
     running_loss = 0.0
     running_window = len(dataloader_train) // 20  # Number of batches for averaging loss
-    for i, (batch_X, batch_y) in enumerate(
+    for i, (batch_X, batch_y, _, _) in enumerate(
         tqdm(dataloader_train, desc="Training", unit="batch")
     ):
         optimizer.zero_grad()
@@ -234,7 +234,7 @@ for epoch in range(n_epochs):
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
-        for i, (batch_X, batch_y) in enumerate(
+        for i, (batch_X, batch_y, _, _) in enumerate(
             tqdm(dataloader_val, desc="Validation", unit="batch")
         ):
             batch_X = batch_X.to(device, non_blocking=True)
