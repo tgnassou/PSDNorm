@@ -51,7 +51,7 @@ dataset_names = [
     "ABC",
     "CHAT",
     "CFS",
-    "SHHS",
+    # "SHHS",
     "HOMEPAP",
     "CCSHS",
     "MASS",
@@ -161,7 +161,6 @@ dataloader_val = get_dataloader(
     num_workers=num_workers,
     pin_memory=pin_memory,
     persistent_workers=persistent_workers,
-    balanced=balanced,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
 )
@@ -177,7 +176,6 @@ dataloader_target = get_dataloader(
     num_workers=num_workers,
     pin_memory=pin_memory,
     persistent_workers=persistent_workers,
-    balanced=balanced,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
 )
@@ -263,40 +261,40 @@ for epoch in range(n_epochs):
             tqdm.write(f"Batch {i+1}/{len(dataloader_train)}, Avg Loss: {avg_loss:.3f}")
             running_loss = 0.0
 
-        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-        y_true_all = [y.cpu().numpy() for y in y_true_all]
-        y_pred = np.concatenate(y_pred_all)
-        y_true = np.concatenate(y_true_all)
-        if model_name == "USleep":
-            y_pred = y_pred[:, first_window_idx:last_window_idx]
-            y_true = y_true[:, first_window_idx:last_window_idx]
+    y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+    y_true_all = [y.cpu().numpy() for y in y_true_all]
+    y_pred = np.concatenate(y_pred_all)
+    y_true = np.concatenate(y_true_all)
+    if model_name == "USleep":
+        y_pred = y_pred[:, first_window_idx:last_window_idx]
+        y_true = y_true[:, first_window_idx:last_window_idx]
 
-        perf = accuracy_score(y_true.flatten(), y_pred.flatten())
-        f1 = f1_score(
-            y_true.flatten(), y_pred.flatten(), average="weighted"
+    perf = accuracy_score(y_true.flatten(), y_pred.flatten())
+    f1 = f1_score(
+        y_true.flatten(), y_pred.flatten(), average="weighted"
         )
 
-        model.eval()
-        with torch.no_grad():
-            val_loss = np.zeros(len(dataloader_val))
-            y_pred_all, y_true_all = list(), list()
-            for i, (batch_X, batch_y, _, _) in enumerate(
-                tqdm(dataloader_val, desc="Validation", unit="batch")
-            ):
-                batch_X = batch_X.to(device, non_blocking=True)
-                batch_y = batch_y.to(device, non_blocking=True)
+    model.eval()
+    with torch.no_grad():
+        val_loss = np.zeros(len(dataloader_val))
+        y_pred_all, y_true_all = list(), list()
+        for i, (batch_X, batch_y, _, _) in enumerate(
+            tqdm(dataloader_val, desc="Validation", unit="batch")
+        ):
+            batch_X = batch_X.to(device, non_blocking=True)
+            batch_y = batch_y.to(device, non_blocking=True)
 
-                with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
-                    output = model(batch_X)
+            with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+                output = model(batch_X)
 
-                loss_batch = criterion(output, batch_y)
+            loss_batch = criterion(output, batch_y)
 
-                y_pred_all.append(output.argmax(axis=1).detach())
-                y_true_all.append(batch_y.detach())
-                val_loss[i] = loss_batch.item()
+            y_pred_all.append(output.argmax(axis=1).detach())
+            y_true_all.append(batch_y.detach())
+            val_loss[i] = loss_batch.item()
 
-            y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-            y_true_all = [y.cpu().numpy() for y in y_true_all]
+        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
+        y_true_all = [y.cpu().numpy() for y in y_true_all]
 
         y_pred = np.concatenate(y_pred_all)
         y_true = np.concatenate(y_true_all)
@@ -397,8 +395,12 @@ with torch.no_grad():
 
 results = []
 for subj_id, data in results_by_subject.items():
-    y_pred_tensor = torch.cat(data["y_pred"])
-    y_true_tensor = torch.cat(data["y_true"])
+    if model_name == "USleep":
+        y_pred_tensor = torch.cat(data["y_pred"])
+        y_true_tensor = torch.cat(data["y_true"])
+    else:
+        y_pred_tensor = torch.cat([t.unsqueeze(0) for t in data["y_pred"]])
+        y_true_tensor = torch.cat([t.unsqueeze(0) for t in data["y_true"]])
 
     results.append(
         {

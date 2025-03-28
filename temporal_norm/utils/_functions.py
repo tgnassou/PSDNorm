@@ -9,7 +9,6 @@ def get_center_label(x):
 
 
 def get_probs(metadata, dataset_names, alpha=0.5):
-    metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
     length = {}
     for dataset in dataset_names:
         length[dataset] = metadata[metadata["dataset_name"] == dataset]["sub+session"].nunique()

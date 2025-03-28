@@ -645,9 +645,17 @@ class _LargeCNN(nn.Module):
 
     """
 
-    def __init__(self, activation: nn.Module = nn.ELU, drop_prob: float = 0.5):
+    def __init__(self, activation: nn.Module = nn.ELU, drop_prob: float = 0.5,  norm="BatchNorm", filter_size=None):
         super().__init__()
-
+        out_channels = 64
+        if norm == "BatchNorm":
+            norm_layer = nn.BatchNorm2d(num_features=out_channels)
+        elif norm == "PSDNorm":
+            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+        elif norm == "InstanceNorm":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels)
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.conv1 = nn.Sequential(
             nn.Conv2d(
                 in_channels=1,
@@ -657,11 +665,21 @@ class _LargeCNN(nn.Module):
                 padding=(0, 175),
                 bias=False,
             ),
-            nn.BatchNorm2d(num_features=64),
+            norm_layer,
             activation(),
         )
         self.pool1 = nn.MaxPool2d(kernel_size=(1, 4), stride=(1, 4))
         self.dropout = nn.Dropout(p=drop_prob)
+
+        out_channels = 128
+        if norm == "BatchNorm":
+            norm_layer = nn.BatchNorm2d(num_features=out_channels)
+        elif norm == "PSDNorm":
+            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+        elif norm == "InstanceNorm":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels)
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.conv2 = nn.Sequential(
             nn.Conv2d(
                 in_channels=64,
@@ -671,9 +689,18 @@ class _LargeCNN(nn.Module):
                 padding="same",
                 bias=False,
             ),
-            nn.BatchNorm2d(num_features=128),
+            norm_layer,
             activation(),
         )
+
+        if norm == "BatchNorm":
+            norm_layer = nn.BatchNorm2d(num_features=out_channels)
+        elif norm == "PSDNorm":
+            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+        elif norm == "InstanceNorm":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels)
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.conv3 = nn.Sequential(
             nn.Conv2d(
                 in_channels=128,
@@ -683,9 +710,18 @@ class _LargeCNN(nn.Module):
                 padding="same",
                 bias=False,
             ),
-            nn.BatchNorm2d(num_features=128),
+            norm_layer,
             activation(),
         )
+
+        if norm == "BatchNorm":
+            norm_layer = nn.BatchNorm2d(num_features=out_channels)
+        elif norm == "PSDNorm":
+            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+        elif norm == "InstanceNorm":
+            norm_layer = nn.InstanceNorm1d(num_features=out_channels)
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.conv4 = nn.Sequential(
             nn.Conv2d(
                 in_channels=128,
@@ -695,12 +731,13 @@ class _LargeCNN(nn.Module):
                 padding="same",
                 bias=False,
             ),
-            nn.BatchNorm2d(num_features=128),
+            norm_layer,
             activation(),
         )
         self.pool2 = nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2), padding=(0, 1))
 
     def forward(self, x):
+        x = x[:, :, :1, :]
         x = self.conv1(x)
         x = self.dropout(self.pool1(x))
         x = self.conv2(x)
@@ -795,9 +832,9 @@ class DeepSleepNet(EEGModuleMixin, nn.Module):
         self.cnn1 = _SmallCNN(activation=activation_small, drop_prob=drop_prob, norm=norm, filter_size=filter_size)
         self.cnn2 = _LargeCNN(activation=activation_large, drop_prob=drop_prob)
         self.dropout = nn.Dropout(0.5)
-        self.bilstm = _BiLSTM(input_size=137344, hidden_size=512, num_layers=2)
+        self.bilstm = _BiLSTM(input_size=103680, hidden_size=512, num_layers=2)
         self.fc = nn.Sequential(
-            nn.Linear(137344, 1024, bias=False), nn.BatchNorm1d(num_features=1024)
+            nn.Linear(103680, 1024, bias=False), nn.BatchNorm1d(num_features=1024)
         )
 
         self.features_extractor = nn.Identity()
