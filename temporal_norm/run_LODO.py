@@ -1,5 +1,6 @@
 # %%
 import time
+from collections import defaultdict
 import copy
 from pathlib import Path
 from tqdm import tqdm
@@ -64,7 +65,7 @@ rng = check_random_state(seed)
 
 # dataloader
 n_windows = 35
-n_windows_stride = 10
+n_windows_stride = 21
 batch_size = 64
 batch_size_inference = batch_size
 num_workers = 40
@@ -89,6 +90,11 @@ print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
 n_epochs = 5
 patience = 5
+
+# idx center of the window
+assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
+first_window_idx = (n_windows - n_windows_stride) // 2
+last_window_idx = first_window_idx + n_windows_stride
 
 # %%
 subject_ids = get_subject_ids(metadata, dataset_names)
@@ -217,8 +223,8 @@ for epoch in range(n_epochs):
 
     y_pred_all = [y.cpu().numpy() for y in y_pred_all]
     y_true_all = [y.cpu().numpy() for y in y_true_all]
-    y_pred = np.concatenate(y_pred_all)[:, 10:25]
-    y_true = np.concatenate(y_true_all)[:, 10:25]
+    y_pred = np.concatenate(y_pred_all)[:, first_window_idx:last_window_idx]
+    y_true = np.concatenate(y_true_all)[:, first_window_idx:last_window_idx]
     perf = accuracy_score(y_true.flatten(), y_pred.flatten())
     f1 = f1_score(
         y_true.flatten(), y_pred.flatten(), average="weighted"
@@ -246,8 +252,8 @@ for epoch in range(n_epochs):
         y_pred_all = [y.cpu().numpy() for y in y_pred_all]
         y_true_all = [y.cpu().numpy() for y in y_true_all]
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25]
-        y_true = np.concatenate(y_true_all)[:, 10:25]
+        y_pred = np.concatenate(y_pred_all)[:, first_window_idx:last_window_idx]
+        y_true = np.concatenate(y_true_all)[:, first_window_idx:last_window_idx]
         perf_val = accuracy_score(y_true.flatten(), y_pred.flatten())
         std_val = np.std(perf_val)
         f1_val = f1_score(
@@ -315,43 +321,49 @@ folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
 results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
-n_target = len(subject_id_target)
-for n_subj in tqdm(range(n_target), desc="Inference on target", unit="subject"):
-    dataloader_target = get_dataloader(
-        metadata,
-        [dataset_target],
-        {dataset_target: subject_id_target[n_subj:n_subj+1]},
-        n_windows,
-        n_windows_stride,
-        batch_size_inference,
-        num_workers,
-        pin_memory,
-        persistent_workers,
-    )
-    y_pred_all, y_true_all = list(), list()
-    #  create one y_pred per moduels
+# Initialize one dataloader for all subjects at once
+dataloader_target = get_dataloader(
+    metadata=metadata,
+    dataset_names=[dataset_target],
+    subject_ids={dataset_target: subject_id_target},
+    n_windows=n_windows,
+    n_windows_stride=n_windows_stride,
+    batch_size=batch_size_inference,
+    num_workers=num_workers,
+    pin_memory=pin_memory,
+    persistent_workers=True,
+)
 
-    best_model.eval()
-    with torch.no_grad():
-        for i, (batch_X, batch_y) in enumerate(dataloader_target):
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
+# Accumulate predictions and targets on GPU per subject
+results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
 
-            with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
-                output = best_model(batch_X)
+best_model.eval()
+with torch.no_grad():
+    for batch_X, batch_y, batch_sub_id, batch_session_id in tqdm(
+        dataloader_target, desc="Inference on target", unit="batch"
+    ):
+        batch_X = batch_X.to(device, non_blocking=True)
+        batch_y = batch_y.to(device, non_blocking=True)
+        batch_sub_id = batch_sub_id.to(device, non_blocking=True)
 
-            y_pred_all.append(output.argmax(axis=1).detach())
-            y_true_all.append(batch_y.detach())
+        with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
+            output = best_model(batch_X)
 
-        y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-        y_true_all = [y.cpu().numpy() for y in y_true_all]
+        preds = output.argmax(dim=1)
 
-        y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-        y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
+        # Gather predictions per subject
+        for y_t, y_p, subj in zip(batch_y, preds, batch_sub_id):
+            results_by_subject[int(subj.item())]["y_true"].append(y_t[first_window_idx:last_window_idx])
+            results_by_subject[int(subj.item())]["y_pred"].append(y_p[first_window_idx:last_window_idx])
+
+results = []
+for subj_id, data in results_by_subject.items():
+    y_pred_tensor = torch.cat(data["y_pred"])
+    y_true_tensor = torch.cat(data["y_true"])
+
     results.append(
         {
-            "subject": n_subj,
-            # add hps
+            "subject": subj_id,
             "seed": seed,
             "dataset": dataset_target,
             "dataset_type": "target",
@@ -369,9 +381,8 @@ for n_subj in tqdm(range(n_target), desc="Inference on target", unit="subject"):
             "n_epochs": n_epochs,
             "patience": patience,
             "percentage": percentage,
-            # add metrics
-            "y_pred": y_pred,
-            "y_true": y_t,
+            "y_pred": y_pred_tensor.cpu().numpy().flatten(),
+            "y_true": y_true_tensor.cpu().numpy().flatten(),
         }
     )
 
@@ -383,77 +394,3 @@ df_results = pd.concat((df_results, pd.DataFrame(results)))
 df_results.to_pickle(results_path)
 
 print("Target Inference Done")
-
-# %%
-results = []
-for dataset_source in dataset_sources:
-    for n_subj in tqdm(
-        range(len(subject_ids_test[dataset_source])),
-        desc=f"Inference on {dataset_source} (source)",
-        unit="subject"
-    ):
-        dataloader_target = get_dataloader(
-            metadata,
-            [dataset_source],
-            {dataset_source: subject_ids_test[dataset_source][n_subj:n_subj+1]},
-            n_windows,
-            n_windows_stride,
-            batch_size,
-            num_workers,
-            pin_memory,
-            persistent_workers,
-        )
-        y_pred_all, y_true_all = list(), list()
-        best_model.eval()
-        with torch.no_grad():
-            for i, (batch_X, batch_y) in enumerate(dataloader_target):
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
-
-                with autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp):
-                    output = best_model(batch_X)
-
-                y_pred_all.append(output.argmax(axis=1).detach())
-                y_true_all.append(batch_y.detach())
-
-            y_pred_all = [y.cpu().numpy() for y in y_pred_all]
-            y_true_all = [y.cpu().numpy() for y in y_true_all]
-
-            y_pred = np.concatenate(y_pred_all)[:, 10:25].flatten()
-            y_t = np.concatenate(y_true_all)[:, 10:25].flatten()
-
-        results.append(
-            {
-                "subject": n_subj,
-                # add hps
-                "seed": seed,
-                "dataset": dataset_source,
-                "dataset_type": "source",
-                "norm": norm,
-                "filter_size_input": None,
-                "filter_size": filter_size,
-                "depth_norm": depth_norm,
-                "n_subject_train": n_subject_tot,
-                "n_subject_test": len(subject_ids_test[dataset_source]),
-                "n_windows": n_windows,
-                "n_windows_stride": n_windows_stride,
-                "batch_size": batch_size,
-                "num_workers": num_workers,
-                "n_epochs": n_epochs,
-                "patience": patience,
-                "percentage": percentage,
-                "norm": norm,
-                # add metrics
-                "y_pred": y_pred,
-                "y_true": y_t,
-            }
-        )
-
-try:
-    df_results = pd.read_pickle(results_path)
-except FileNotFoundError:
-    df_results = pd.DataFrame()
-df_results = pd.concat((df_results, pd.DataFrame(results)))
-df_results.to_pickle(results_path)
-
-print("Source Inference Done")
