@@ -559,7 +559,7 @@ class _SmallCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:
@@ -581,7 +581,7 @@ class _SmallCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:
@@ -603,7 +603,7 @@ class _SmallCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:
@@ -675,7 +675,7 @@ class _LargeCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:
@@ -696,7 +696,7 @@ class _LargeCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:
@@ -717,7 +717,7 @@ class _LargeCNN(nn.Module):
         if norm == "BatchNorm":
             norm_layer = nn.BatchNorm2d(num_features=out_channels)
         elif norm == "PSDNorm":
-            norm_layer = PSDNorm(filter_size, n_channels=out_channels)
+            norm_layer = PSDNorm(filter_size // 2, n_channels=out_channels)
         elif norm == "InstanceNorm":
             norm_layer = nn.InstanceNorm1d(num_features=out_channels)
         else:

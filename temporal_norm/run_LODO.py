@@ -75,6 +75,10 @@ rng = check_random_state(seed)
 # dataloader
 n_windows = 35
 n_windows_stride = 21
+n_windows_stride_inference = 1 if model_name == "DeepSleepNet" else n_windows_stride
+n_sequences_balanced = int(len(metadata) / n_windows_stride)
+if balanced:
+    n_windows_stride = 1
 batch_size = 64
 batch_size_inference = batch_size
 pin_memory = True
@@ -146,6 +150,7 @@ dataloader_train = get_dataloader(
     pin_memory=pin_memory,
     persistent_workers=persistent_workers,
     balanced=balanced,
+    n_sequences_balanced=n_sequences_balanced,
     randomize=True,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
 )
@@ -156,7 +161,7 @@ dataloader_val = get_dataloader(
     dataset_names=dataset_sources,
     subject_ids=subject_ids_val,
     n_windows=n_windows,
-    n_windows_stride=n_windows_stride,
+    n_windows_stride=n_windows_stride_inference,
     batch_size=batch_size_inference,
     num_workers=num_workers,
     pin_memory=pin_memory,
@@ -171,7 +176,7 @@ dataloader_target = get_dataloader(
     dataset_names=[dataset_target],
     subject_ids={dataset_target: subject_id_target},
     n_windows=n_windows,
-    n_windows_stride=n_windows_stride,
+    n_windows_stride=n_windows_stride_inference,
     batch_size=batch_size_inference,
     num_workers=num_workers,
     pin_memory=pin_memory,
@@ -353,20 +358,20 @@ folder = Path("results_LODO")
 folder.mkdir(parents=True, exist_ok=True)
 folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
-history_path = folder_history / f"history_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+history_path = folder_history / f"history_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
 folder_model = folder / "models"
 folder_model.mkdir(parents=True, exist_ok=True)
-torch.save(best_model, folder_model / f"models_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), folder_model / f"optimizer_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
 folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
-results_path = folder_pickle / f"results_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+results_path = folder_pickle / f"results_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
 
 # Accumulate predictions and targets on GPU per subject
 results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
