@@ -91,7 +91,7 @@ elif norm == "PSDNorm":
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 # training
-n_epochs = 1
+n_epochs = 3
 patience = 5
 
 # idx center of the window
