@@ -1,6 +1,7 @@
 import numpy as np
 from pathlib import Path
 import h5py
+from functools import lru_cache
 
 import torch
 from torch.utils.data import DataLoader
@@ -27,6 +28,13 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         self._rename_columns(self.metadata)
         self.dict_filters = dict_filters
         self.target_transform = target_transform
+
+        # Convert metadata columns to NumPy arrays for fast indexing
+        self.runs = self.metadata["run"].values
+        self.subjects = self.metadata["subject"].values
+        self.sessions = self.metadata["session"].astype(str).values
+        self.samples = self.metadata["i_window_in_trial"].values
+        self.targets = self.metadata["target"].values
 
     def _epoching(self, X, size):
         """Create a epoch of size `size` on the data `X`.
@@ -77,42 +85,58 @@ class MultiDomainDataset(torch.utils.data.Dataset):
         df["i_start_in_trial"] = np.zeros(len(df), dtype=int)
         df["i_stop_in_trial"] = 3000 * np.ones(len(df), dtype=int)
 
+    @lru_cache(maxsize=32)
+    def _get_h5_file(self, dataset):
+        return h5py.File(Path(DATA_H5_PATH) / f"{dataset}.h5", "r")
+
     def _get_sequence(self, indices):
-        X, y = list(), list()
-        for idx in indices:
-            # path = self.metadata.iloc[idx]["path"]
-            dataset = self.metadata.iloc[idx]["run"]
-            subject = self.metadata.iloc[idx]["subject"]
-            session = self.metadata.iloc[idx]["session"]
-            if session == "1.0":
-                session = "1"
-            elif session == "2.0":
-                session = "2"
-            elif session == "3.0":
-                session = "3"
-            elif session == "nan":
-                session = "None"
-            sample = self.metadata.iloc[idx]["i_window_in_trial"]
+        indices = np.asarray(indices)
 
-            path = Path(DATA_H5_PATH) / f"{dataset}.h5"
-            # read h5 part
-            with h5py.File(path, "r") as f:
-                X.append(f[f"subject_{subject}/session_{session}/{sample}"][:])
-            y.append(self.metadata.iloc[idx]["target"])
+        # Fetch values for all indices at once
+        datasets = self.runs[indices]
+        subjects = self.subjects[indices]
+        sessions = self.sessions[indices]
 
-        X = np.stack(X, axis=0)
-        if self.dict_filters:
-            dataset_name = self.metadata.iloc[indices[0]]["run"]
-            subject_id = self.metadata.iloc[indices[0]]["subject"]
-            X = self._convolve(
-                X, self.dict_filters[(dataset_name, subject_id)]
+        # Check that all entries refer to the same dataset / subject / session
+        if not (np.all(datasets == datasets[0]) and
+                np.all(subjects == subjects[0]) and
+                np.all(sessions == sessions[0])):
+            import warnings
+            warnings.warn(
+                f"Be careful, indices {indices} do not correspond to the same subject/session."
+                "This may lead to unexpected behavior."
             )
 
-        y = np.array(y)
+        dataset = datasets[0]
+        subject = subjects[0]
+        session = sessions[0]
+
+        # Normalize session name
+        session_map = {"1.0": "1", "2.0": "2", "3.0": "3", "nan": "None"}
+        session = session_map.get(session, session)
+
+        # Get sample indices
+        sample_indices = self.samples[indices]
+        
+        # Check if the samples are contiguous
+        # THIS SHOULD BE REMOVED IN THE FUTURE
+        if np.all(np.diff(sample_indices) == 1):
+            first_sample = sample_indices[0]
+            last_sample = sample_indices[-1] + 1
+        else:
+            # print("Non-contiguous samples detected. This should not happen.")
+            first_sample = np.min(sample_indices)
+            last_sample = first_sample + len(sample_indices)
+
+        # Read data from HDF5
+        f = self._get_h5_file(dataset)
+        X = f[f"subject_{subject}/session_{session}"][first_sample:last_sample]
+
+        y = self.targets[indices]
+
         if self.target_transform:
             y = self.target_transform(y)
-
-        return X, y
+        return X, y, subject, session
 
     def __getitem__(self, idx):
         if not isinstance(idx, Iterable):
@@ -160,6 +184,8 @@ def get_dataloader(
     n_windows_stride,
     batch_size,
     num_workers,
+    pin_memory,
+    persistent_workers,
     dict_filters=None,
     randomize=True,
     balanced=None,
@@ -188,6 +214,9 @@ def get_dataloader(
         )
     dataloader = DataLoader(
         dataset, batch_size=batch_size,
-        sampler=sampler, num_workers=num_workers
+        sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
     )
     return dataloader

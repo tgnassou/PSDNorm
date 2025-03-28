@@ -1,5 +1,4 @@
 # %%
-import numpy as np
 import pandas as pd
 # %%
 dataset_names = [
@@ -16,8 +15,6 @@ dataset_names = [
 ]
 metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
 
-# %%
-metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
 # %%
 for dataset_name in dataset_names:
     print(dataset_name)
