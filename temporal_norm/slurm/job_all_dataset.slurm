@@ -24,36 +24,16 @@ module purge
 
 module load pytorch-gpu/py3/2.6.0
 
-## PARAMETER LISTS
-DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
-NORMS=("PSDNorm" "BatchNorm")
-MODEL_NAMES=("USleep" "DeepSleepNet")
-
-NUM_DATASETS=${#DATASETS[@]}
-NUM_NORMS=${#NORMS[@]}
-NUM_MODELS=${#MODEL_NAMES[@]}
-
-TOTAL_COMBINATIONS=$((NUM_DATASETS * NUM_NORMS * NUM_MODELS))
-
-if [ "$SLURM_ARRAY_TASK_ID" -ge "$TOTAL_COMBINATIONS" ]; then
-    echo "Invalid SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}, max allowed is $((TOTAL_COMBINATIONS - 1))"
-    exit 1
-fi
-
-# Decode task ID into dataset, norm, and model
-DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
-NORM_ID=$(( (SLURM_ARRAY_TASK_ID / NUM_DATASETS) % NUM_NORMS ))
-MODEL_ID=$(( SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_NORMS) ))
-
-DATASET="${DATASETS[$DATASET_ID]}"
-NORM="${NORMS[$NORM_ID]}"
-MODEL_NAME="${MODEL_NAMES[$MODEL_ID]}"
-
-echo "Running: Dataset=$DATASET | Norm=$NORM | Model=$MODEL_NAME"
+cd $WORK/experiments/ram/ram_project/
+## ENV ACTIVATION
 
 ## CODE EXECUTION
-srun python run_LODO.py \
-    --dataset "$DATASET" \
-    --percent 0.01 \
-    --norm "$NORM" \
-    --model_name "$MODEL_NAME"
+DATASETS=("ABC" "CHAT" "CFS" "SHHS" "HOMEPAP" "CCSHS" "MASS" "PhysioNet" "SOF" "MROS")
+
+NUM_DATASETS=${#DATASETS[@]}
+DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
+
+DATASET="${DATASETS[$DATASET_ID]}"
+
+## MINIMAL TEST
+srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 1
