@@ -16,7 +16,7 @@
 ## JOB ACCOUNTABILITY
 #SBATCH --qos=qos_gpu-t3
 #SBATCH --time=20:00:00
-#SBATCH --array=0-39
+#SBATCH --array=0-9
 
 
 ## ENV ACTIVATION
