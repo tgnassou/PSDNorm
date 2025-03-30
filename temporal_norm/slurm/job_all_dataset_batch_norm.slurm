@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ## JOB INFO
-#SBATCH --job-name=lodo_lodo_batchnorm
-#SBATCH --output=slurm_logs/lodo_all_datasets_%j.out
-#SBATCH --error=slurm_logs/lodo_all_datasets_%j.out
+#SBATCH --job-name=lodo_deep_sleep_net_batchnorm
+#SBATCH --output=slurm_logs/lodo_deep_sleep_net_batchnorm.out
+#SBATCH --error=slurm_logs/lodo_deep_sleep_net_batchnorm.out
 
 ## NODE CONFIGURATION
 #SBATCH --constraint=v100

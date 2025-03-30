@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ## JOB INFO
-#SBATCH --job-name=lodo_lodo_psdnorm
-#SBATCH --output=slurm_logs/lodo_all_datasets_%j.out
-#SBATCH --error=slurm_logs/lodo_all_datasets_%j.out
+#SBATCH --job-name=lodo_deep_sleep_net_psdnorm_4
+#SBATCH --output=slurm_logs/lodo_deep_sleep_net_psdnorm_4.out
+#SBATCH --error=slurm_logs/lodo_deep_sleep_net_psdnorm_4.out
 
 ## NODE CONFIGURATION
 #SBATCH --constraint=v100
@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 1 --model_name DeepSleepNet
+srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 1 --model_name DeepSleepNet --filter_size 4
