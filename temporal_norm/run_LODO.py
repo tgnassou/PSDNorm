@@ -103,8 +103,8 @@ elif norm == "PSDNorm":
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 
 # training
-n_epochs = 5
-patience = 5
+n_epochs = 15
+patience = 3
 assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
 first_window_idx = (n_windows - n_windows_stride) // 2
 last_window_idx = first_window_idx + n_windows_stride
