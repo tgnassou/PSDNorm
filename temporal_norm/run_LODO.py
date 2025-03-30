@@ -233,6 +233,9 @@ num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_g
 print(f"Trainable parameters: {num_trainable_params:,}")
 
 model.to(device)
+if use_amp:
+    model = model.to(torch.bfloat16)
+model = torch.compile(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 history = []
