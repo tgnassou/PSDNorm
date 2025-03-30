@@ -158,6 +158,7 @@ dataloader_train = get_dataloader(
     n_sequences_balanced=n_sequences_balanced,
     randomize=True,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=True,
 )
 
 # Source val dataloader
@@ -173,6 +174,7 @@ dataloader_val = get_dataloader(
     persistent_workers=persistent_workers,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=True,
 )
 
 # Target dataloader
@@ -188,6 +190,7 @@ dataloader_target = get_dataloader(
     persistent_workers=persistent_workers,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=False,
 )
 
 
