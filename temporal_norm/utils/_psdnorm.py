@@ -136,7 +136,7 @@ class PSDNorm(nn.Module):
         # H: (B, C, F)
 
         D = torch.sqrt(target) / torch.sqrt(psd)
-        H = torch.fft.irfft(D, dim=-1)
+        H = torch.fft.irfft(D, dim=-1, n=self.filter_size)
         H = torch.fft.fftshift(H, dim=-1)
 
         # apply filter, convolute H with x
