@@ -41,6 +41,10 @@ class _EncoderBlock(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+
+        # Minimal fix: ensure kernel_size is odd to avoid PyTorch warning
+        if kernel_size % 2 == 0:
+            kernel_size += 1
         self.kernel_size = kernel_size
         self.downsample = downsample
 
@@ -95,6 +99,10 @@ class _DecoderBlock(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+
+        # Minimal fix: ensure kernel_size is odd to avoid PyTorch warning
+        if kernel_size % 2 == 0:
+            kernel_size += 1
         self.kernel_size = kernel_size
         self.upsample = upsample
         self.with_skip_connection = with_skip_connection
@@ -104,7 +112,7 @@ class _DecoderBlock(nn.Module):
             nn.Conv1d(
                 in_channels=in_channels,
                 out_channels=out_channels,
-                kernel_size=2,
+                kernel_size=3,
                 padding="same",
             ),
             activation(),
@@ -254,6 +262,8 @@ class USleepNorm(EEGModuleMixin, nn.Module):
             if norm != "BatchNorm" and idx + 1 <= depth_norm:
                 if norm == "PSDNorm":
                     filter_size_layer = filter_size // 2 ** idx
+                    if filter_size_layer % 2 == 0:
+                        filter_size_layer += 1
                 elif norm == "LayerNorm":
                     filter_size_layer = 105000 // 2 ** idx
                 else:

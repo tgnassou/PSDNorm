@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 from torch import nn
-from torch.amp import autocast, GradScaler
+from torch.amp import autocast
 
 from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet
@@ -32,6 +32,8 @@ parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
 parser.add_argument("--use_amp", action="store_true")
 parser.add_argument("--num_workers", type=int, default=40)
+parser.add_argument("--print_tqdm", action="store_true")
+parser.add_argument("--filter_size", type=int, default=16)
 
 args = parser.parse_args()
 
@@ -42,6 +44,7 @@ model_name = args.model_name
 balanced = args.balanced
 use_amp = args.use_amp
 num_workers = args.num_workers
+print_tqdm = args.print_tqdm
 
 if use_amp:
     print("BE CAREFUL! AMP is enabled.")
@@ -95,13 +98,14 @@ if norm == "BatchNorm":
     depth_norm = None
 
 elif norm == "PSDNorm":
-    filter_size = 16
+    filter_size = args.filter_size
     depth_norm = 3
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
+
 # training
-n_epochs = 5
-patience = 5
+n_epochs = 15
+patience = 3
 assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
 first_window_idx = (n_windows - n_windows_stride) // 2
 last_window_idx = first_window_idx + n_windows_stride
@@ -135,6 +139,8 @@ for dataset_name in dataset_sources:
         subject_ids_dataset, test_size=0.2, random_state=seed
     )
 
+print(f"Target dataset: {dataset_target}")
+
 # %%
 probs = get_probs(metadata, dataset_sources, alpha=0.5)
 
@@ -144,7 +150,7 @@ dataloader_train = get_dataloader(
     dataset_names=dataset_sources,
     subject_ids=subject_ids_train,
     n_windows=n_windows,
-    n_windows_stride=n_windows_stride, # TODO choose stride for balanced
+    n_windows_stride=n_windows_stride,
     batch_size=batch_size,
     num_workers=num_workers,
     pin_memory=pin_memory,
@@ -153,6 +159,7 @@ dataloader_train = get_dataloader(
     n_sequences_balanced=n_sequences_balanced,
     randomize=True,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=True,
 )
 
 # Source val dataloader
@@ -161,13 +168,14 @@ dataloader_val = get_dataloader(
     dataset_names=dataset_sources,
     subject_ids=subject_ids_val,
     n_windows=n_windows,
-    n_windows_stride=n_windows_stride_inference,
+    n_windows_stride=n_windows_stride,
     batch_size=batch_size_inference,
     num_workers=num_workers,
     pin_memory=pin_memory,
     persistent_workers=persistent_workers,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=True,
 )
 
 # Target dataloader
@@ -183,6 +191,7 @@ dataloader_target = get_dataloader(
     persistent_workers=persistent_workers,
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
+    drop_last=False,
 )
 
 
@@ -196,6 +205,7 @@ print()
 print(f"Number of training batches: {len(dataloader_train)}")
 print(f"Number of validation batches: {len(dataloader_val)}")
 print(f"Number of target batches: {len(dataloader_target)}")
+print()
 
 # %%
 if model_name == "USleep":
@@ -220,15 +230,19 @@ elif model_name == "DeepSleepNet":
         filter_size=filter_size,
         norm=norm,
     )
+num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Trainable parameters: {num_trainable_params:,}")
 
 model.to(device)
+if use_amp:
+    model = model.to(torch.bfloat16)
+model = torch.compile(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 history = []
 
 print()
 print("Start training")
-scaler = GradScaler(device=device, enabled=use_amp)
 min_val_loss = np.inf
 for epoch in range(n_epochs):
     print()
@@ -241,7 +255,7 @@ for epoch in range(n_epochs):
     running_loss = 0.0
     running_window = len(dataloader_train) // 20  # Number of batches for averaging loss
     for i, (batch_X, batch_y, _, _) in enumerate(
-        tqdm(dataloader_train, desc="Training", unit="batch")
+        tqdm(dataloader_train, desc="Training", unit="batch", disable=not print_tqdm)
     ):
         optimizer.zero_grad()
         batch_X = batch_X.to(device, non_blocking=True)
@@ -251,9 +265,8 @@ for epoch in range(n_epochs):
             output = model(batch_X)
             loss_batch = criterion(output, batch_y)
 
-        scaler.scale(loss_batch).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        loss_batch.backward()
+        optimizer.step()
 
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
@@ -261,7 +274,7 @@ for epoch in range(n_epochs):
 
         # Update tqdm progress bar every running_window batches with average loss
         running_loss += loss_batch.item()
-        if (i + 1) % running_window == 0:
+        if (i + 1) % running_window == 0 and print_tqdm:
             avg_loss = running_loss / running_window
             tqdm.write(f"Batch {i+1}/{len(dataloader_train)}, Avg Loss: {avg_loss:.3f}")
             running_loss = 0.0
@@ -284,7 +297,7 @@ for epoch in range(n_epochs):
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
         for i, (batch_X, batch_y, _, _) in enumerate(
-            tqdm(dataloader_val, desc="Validation", unit="batch")
+            tqdm(dataloader_val, desc="Validation", unit="batch", disable=not print_tqdm)
         ):
             batch_X = batch_X.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
@@ -379,7 +392,7 @@ results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
 best_model.eval()
 with torch.no_grad():
     for batch_X, batch_y, batch_sub_id, batch_session_id in tqdm(
-        dataloader_target, desc="Inference on target", unit="batch"
+        dataloader_target, desc="Inference on target", unit="batch", disable=not print_tqdm
     ):
         batch_X = batch_X.to(device, non_blocking=True)
         batch_y = batch_y.to(device, non_blocking=True)
