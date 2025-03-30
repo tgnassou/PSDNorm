@@ -371,20 +371,20 @@ folder = Path("results_LODO")
 folder.mkdir(parents=True, exist_ok=True)
 folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
-history_path = folder_history / f"history_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+history_path = folder_history / f"history_{model_name}_{norm}_{percentage}_LODO_{dataset_target}_{filter_size}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
 folder_model = folder / "models"
 folder_model.mkdir(parents=True, exist_ok=True)
-torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{percentage}_LODO_{dataset_target}_{filter_size}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{percentage}_LODO_{dataset_target}_{filter_size}.pt")
 
 results = []
 folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
-results_path = folder_pickle / f"results_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+results_path = folder_pickle / f"results_{model_name}_{norm}_{percentage}_LODO_{dataset_target}_{filter_size}.pkl"
 
 # Accumulate predictions and targets on GPU per subject
 results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
