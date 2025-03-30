@@ -41,9 +41,11 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
     segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
     windowed_segments = segments * window_vals  # Apply window
 
-    # Compute FFT for all segments in parallel
-    segment_fft = torch.fft.rfft(windowed_segments, dim=-1)
-    segment_psd = torch.abs(segment_fft) ** 2 / (fs * scaling)
+    # Compute FFT for all segments in parallel using real output to avoid complex dtype
+    segment_fft = torch.view_as_real(torch.fft.rfft(windowed_segments, dim=-1))
+
+    # Compute magnitude squared manually (Re^2 + Im^2) / scaling
+    segment_psd = (segment_fft[..., 0] ** 2 + segment_fft[..., 1] ** 2) / (fs * scaling)
 
     # Adjust for one-sided spectrum
     if nperseg % 2:
