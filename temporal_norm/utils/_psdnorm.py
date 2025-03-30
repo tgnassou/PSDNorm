@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.fft
-import torch
+import torch.nn.functional as F
 
 
 def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axis=-1):
@@ -93,7 +93,7 @@ class PSDNorm(nn.Module):
         self.bary_learning = bary_learning
         self.center = center
 
-    def _update_barycenter(self, barycenter,):
+    def _update_barycenter(self, barycenter):
         if self.first_iter:
             self.barycenter = barycenter
             self.first_iter = False
@@ -102,7 +102,7 @@ class PSDNorm(nn.Module):
                 (1 - self.momentum)**2 * self.barycenter
                 + self.momentum**2 * barycenter
                 + 2 * self.momentum * (1 - self.momentum) *
-                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log( barycenter)))
+                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
             )
 
     def forward(self, x):
@@ -142,19 +142,12 @@ class PSDNorm(nn.Module):
         # apply filter, convolute H with x
         # x_filtered: (B, C, T)
         H = torch.flip(H, dims=[-1])
-        n_chan = x.shape[1]
-        n_batch = x.shape[0]
-        x_filtered = torch.cat(
-            [
-                torch.nn.functional.conv1d(
-                    x[i : i + 1],
-                    H[i : i + 1].view(n_chan, 1, -1),
-                    padding="same",
-                    groups=n_chan,
-                )
-                for i in range(n_batch)
-            ]
-        )
+
+        B, C, T = x.shape
+        filters = H.view(-1, 1, H.shape[-1])
+        input_x = x.view(1, -1, T)
+        x_filtered = F.conv1d(input_x, filters, padding="same", groups=filters.shape[0])
+        x_filtered = x_filtered.view(B, C, -1)
 
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
