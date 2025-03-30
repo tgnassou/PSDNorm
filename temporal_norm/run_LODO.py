@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 import torch
 from torch import nn
-from torch.amp import autocast, GradScaler
+from torch.amp import autocast
 
 from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet
@@ -239,7 +239,6 @@ history = []
 
 print()
 print("Start training")
-scaler = GradScaler(device=device, enabled=use_amp)
 min_val_loss = np.inf
 for epoch in range(n_epochs):
     print()
@@ -262,9 +261,8 @@ for epoch in range(n_epochs):
             output = model(batch_X)
             loss_batch = criterion(output, batch_y)
 
-        scaler.scale(loss_batch).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        loss_batch.backward()
+        optimizer.step()
 
         y_pred_all.append(output.argmax(axis=1).detach())
         y_true_all.append(batch_y.detach())
