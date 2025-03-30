@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.fft
-import torch
+import torch.nn.functional as F
 
 
 def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axis=-1):
@@ -41,9 +41,11 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
     segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
     windowed_segments = segments * window_vals  # Apply window
 
-    # Compute FFT for all segments in parallel
-    segment_fft = torch.fft.rfft(windowed_segments, dim=-1)
-    segment_psd = torch.abs(segment_fft) ** 2 / (fs * scaling)
+    # Compute FFT for all segments in parallel using real output to avoid complex dtype
+    segment_fft = torch.view_as_real(torch.fft.rfft(windowed_segments, dim=-1))
+
+    # Compute magnitude squared manually (Re^2 + Im^2) / scaling
+    segment_psd = (segment_fft[..., 0] ** 2 + segment_fft[..., 1] ** 2) / (fs * scaling)
 
     # Adjust for one-sided spectrum
     if nperseg % 2:
@@ -93,7 +95,7 @@ class PSDNorm(nn.Module):
         self.bary_learning = bary_learning
         self.center = center
 
-    def _update_barycenter(self, barycenter,):
+    def _update_barycenter(self, barycenter):
         if self.first_iter:
             self.barycenter = barycenter
             self.first_iter = False
@@ -102,7 +104,7 @@ class PSDNorm(nn.Module):
                 (1 - self.momentum)**2 * self.barycenter
                 + self.momentum**2 * barycenter
                 + 2 * self.momentum * (1 - self.momentum) *
-                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log( barycenter)))
+                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
             )
 
     def forward(self, x):
@@ -136,25 +138,18 @@ class PSDNorm(nn.Module):
         # H: (B, C, F)
 
         D = torch.sqrt(target) / torch.sqrt(psd)
-        H = torch.fft.irfft(D, dim=-1)
+        H = torch.fft.irfft(D, dim=-1, n=self.filter_size)
         H = torch.fft.fftshift(H, dim=-1)
 
         # apply filter, convolute H with x
         # x_filtered: (B, C, T)
         H = torch.flip(H, dims=[-1])
-        n_chan = x.shape[1]
-        n_batch = x.shape[0]
-        x_filtered = torch.cat(
-            [
-                torch.nn.functional.conv1d(
-                    x[i : i + 1],
-                    H[i : i + 1].view(n_chan, 1, -1),
-                    padding="same",
-                    groups=n_chan,
-                )
-                for i in range(n_batch)
-            ]
-        )
+
+        B, C, T = x.shape
+        filters = H.view(-1, 1, H.shape[-1])
+        input_x = x.view(1, -1, T)
+        x_filtered = F.conv1d(input_x, filters, padding="same", groups=filters.shape[0])
+        x_filtered = x_filtered.view(B, C, -1)
 
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
