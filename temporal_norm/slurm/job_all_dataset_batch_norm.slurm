@@ -24,9 +24,6 @@ module purge
 
 module load pytorch-gpu/py3/2.6.0
 
-cd $WORK/experiments/ram/ram_project/
-## ENV ACTIVATION
-
 ## CODE EXECUTION
 DATASETS=("ABC" "CHAT" "CFS" "SHHS" "HOMEPAP" "CCSHS" "MASS" "PhysioNet" "SOF" "MROS")
 
