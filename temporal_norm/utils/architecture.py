@@ -884,6 +884,7 @@ class DeepSleepNet(EEGModuleMixin, nn.Module):
         temp = x.clone()
         temp = self.fc(temp)
         x = x.unsqueeze(1)
+        self.bilstm.flatten_parameters()
         x = self.bilstm(x)
         x = x.squeeze()
         x = torch.add(x, temp)

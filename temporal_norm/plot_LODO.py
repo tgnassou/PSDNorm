@@ -1,3 +1,4 @@
+# %%
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,7 +9,7 @@ from statannotations.Annotator import Annotator
 import re
 
 # %% Load all result files
-fnames = list(Path("results_LODO/pickles").glob("results_*_LODO_*.pkl"))
+fnames = list(Path("results_LODO/pickles").glob("results_*1.0_LODO_*.pkl"))
 
 # Extract metadata from filenames
 pattern = re.compile(r"results_(?P<model>[^_]+)_(?P<norm>[^_]+)_(?P<percent>[^_]+)_LODO_(?P<dataset>[^.]+).pkl")
@@ -141,3 +142,5 @@ for (model_name, percent), df_group in df.groupby(["model", "percent"]):
     table_path.parent.mkdir(parents=True, exist_ok=True)
     with open(table_path, "w") as f:
         f.write(table_tex)
+
+# %%
