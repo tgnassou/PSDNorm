@@ -9,7 +9,7 @@ from statannotations.Annotator import Annotator
 import re
 
 # %% Load all result files
-fnames = list(Path("results_LODO/pickles").glob("results_*1.0_LODO_*.pkl"))
+fnames = list(Path("results_LODO/pickles").glob("results_*0.01_LODO_*.pkl"))
 
 # Extract metadata from filenames
 pattern = re.compile(r"results_(?P<model>[^_]+)_(?P<norm>[^_]+)_(?P<percent>[^_]+)_LODO_(?P<dataset>[^.]+).pkl")
