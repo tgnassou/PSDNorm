@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 0.05 --model_name DeepSleepNet --num_workers 10
+srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 0.05 --model_name USleep --num_workers 10
