@@ -2,20 +2,20 @@
 
 ## JOB INFO
 #SBATCH --job-name=lodo_usleep_batchnorm
-#SBATCH --output=slurm_logs/lodo_deep_sleep_net_batchnorm_%j.out
-#SBATCH --error=slurm_logs/lodo_deep_sleep_net_batchnorm_%j.out
+#SBATCH --output=slurm_logs/lodo_usleep_batchnorm_%j.out
+#SBATCH --error=slurm_logs/lodo_usleep_batchnorm_%j.out
 
 ## NODE CONFIGURATION
 #SBATCH --constraint=v100
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=40
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
 #SBATCH --qos=qos_gpu-t3
-#SBATCH --time=5:00:00
+#SBATCH --time=10:00:00
 #SBATCH --array=0-9
 
 
@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET --norm BatchNorm --percent 0.05 --model_name USleep --num_workers 10
+srun python run_LODO.py --dataset $DATASET --norm BatchNorm --percent 0.05 --model_name USleep

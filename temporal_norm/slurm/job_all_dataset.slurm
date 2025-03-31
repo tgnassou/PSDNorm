@@ -10,12 +10,12 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=40
 #SBATCH --hint=nomultithread
 
 ## JOB ACCOUNTABILITY
 #SBATCH --qos=qos_gpu-t3
-#SBATCH --time=5:00:00
+#SBATCH --time=10:00:00
 #SBATCH --array=0-9
 
 
@@ -36,4 +36,4 @@ DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 DATASET="${DATASETS[$DATASET_ID]}"
 
 ## MINIMAL TEST
-srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 0.05 --model_name USleep --num_workers 10
+srun python run_LODO.py --dataset $DATASET --norm PSDNorm --percent 0.05 --model_name USleep 
