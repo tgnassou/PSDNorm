@@ -34,6 +34,8 @@ if not data:
     raise RuntimeError("No result files matched the expected pattern.")
 df = pd.concat(data, axis=0)
 df["f1"] = df.apply(lambda x: f1_score(x.y_true, x.y_pred, average="weighted"), axis=1)
+# Ensure dataset order is consistent
+df["dataset"] = pd.Categorical(df["dataset"], categories=sorted(df["dataset"].unique()), ordered=True)
 
 # %% Plot + Tables per (model, percent)
 for (model_name, percent), df_group in df.groupby(["model", "percent"]):
