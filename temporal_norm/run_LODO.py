@@ -28,6 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument("--filter_size", type=int, default=9)
 parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
 parser.add_argument("--use_amp", action="store_true")
@@ -38,6 +39,7 @@ args = parser.parse_args()
 
 percentage = args.percent
 norm = args.norm
+filter_size = args.filter_size
 dataset_target = args.dataset
 model_name = args.model_name
 balanced = args.balanced
@@ -97,7 +99,6 @@ if norm == "BatchNorm":
     depth_norm = None
 
 elif norm == "PSDNorm":
-    filter_size = 16
     depth_norm = 3
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
@@ -370,20 +371,20 @@ folder = Path("results_LODO")
 folder.mkdir(parents=True, exist_ok=True)
 folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
-history_path = folder_history / f"history_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+history_path = folder_history / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
 folder_model = folder / "models"
 folder_model.mkdir(parents=True, exist_ok=True)
-torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt")
 # save optimizer
-torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt")
 
 results = []
 folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
-results_path = folder_pickle / f"results_{model_name}_{norm}_{percentage}_LODO_{dataset_target}.pkl"
+results_path = folder_pickle / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
 
 # Accumulate predictions and targets on GPU per subject
 results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})

@@ -578,7 +578,7 @@ class _SmallCNN(nn.Module):
             nn.Conv2d(
                 in_channels=64,
                 out_channels=128,
-                kernel_size=(1, 8),
+                kernel_size=(1, 9),
                 stride=1,
                 padding="same",
                 bias=False,
@@ -600,7 +600,7 @@ class _SmallCNN(nn.Module):
             nn.Conv2d(
                 in_channels=128,
                 out_channels=128,
-                kernel_size=(1, 8),
+                kernel_size=(1, 9),
                 stride=1,
                 padding="same",
                 bias=False,
@@ -622,7 +622,7 @@ class _SmallCNN(nn.Module):
             nn.Conv2d(
                 in_channels=128,
                 out_channels=128,
-                kernel_size=(1, 8),
+                kernel_size=(1, 9),
                 stride=1,
                 padding="same",
                 bias=False,
@@ -694,7 +694,7 @@ class _LargeCNN(nn.Module):
             nn.Conv2d(
                 in_channels=64,
                 out_channels=128,
-                kernel_size=(1, 6),
+                kernel_size=(1, 7),
                 stride=1,
                 padding="same",
                 bias=False,
@@ -715,7 +715,7 @@ class _LargeCNN(nn.Module):
             nn.Conv2d(
                 in_channels=128,
                 out_channels=128,
-                kernel_size=(1, 6),
+                kernel_size=(1, 7),
                 stride=1,
                 padding="same",
                 bias=False,
@@ -736,7 +736,7 @@ class _LargeCNN(nn.Module):
             nn.Conv2d(
                 in_channels=128,
                 out_channels=128,
-                kernel_size=(1, 6),
+                kernel_size=(1, 7),
                 stride=1,
                 padding="same",
                 bias=False,
