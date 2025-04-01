@@ -75,6 +75,12 @@ class PSDNorm(nn.Module):
         center=True,
         n_channels=1,
     ):
+        # This layer is not always well compiled.
+        # The following two lines make sure it's run in eager mode if
+        # the compilation fails.
+        import torch._dynamo
+        torch._dynamo.config.suppress_errors = True
+
         super(PSDNorm, self).__init__()
         self.filter_size = filter_size
         self.momentum = momentum
