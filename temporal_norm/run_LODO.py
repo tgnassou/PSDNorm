@@ -34,7 +34,6 @@ parser.add_argument("--balanced", action="store_true")
 parser.add_argument("--use_amp", action="store_true")
 parser.add_argument("--num_workers", type=int, default=40)
 parser.add_argument("--print_tqdm", action="store_true")
-parser.add_argument("--filter_size", type=int, default=16)
 
 args = parser.parse_args()
 
