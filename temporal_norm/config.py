@@ -12,6 +12,9 @@ if not DATA_PATH.exists():
 
 DATA_H5_PATH = Path("/raid/derivatives/h5_dataset_V2/")
 if not DATA_H5_PATH.exists():
-    DATA_H5_PATH = "/lustre/fswork/projects/rech/chr/ujq48hj/datasets/"               
+    DATA_H5_PATH = "/lustre/fswork/projects/rech/chr/ujq48hj/datasets/"
+
+LMDB_PATH = "/raid/derivatives/Camelyon/lmdb_dataset"
+
 # MODEL_PATH.mkdir(parents=True, exist_ok=True)
 RESULTS_PATH.mkdir(parents=True, exist_ok=True)

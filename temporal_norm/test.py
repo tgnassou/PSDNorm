@@ -1,159 +1,310 @@
 # %%
-import numpy as np
-import pandas as pd
-from temporal_norm.utils._dataset import MultiDomainDataset
-# %%
-dataset_names = [
-    "ABC",
-    "CHAT",
-    "CFS",
-    "SHHS",
-    "HOMEPAP",
-    "CCSHS",
-    "MASS",
-    "PhysioNet",
-    "SOF",
-    "MROS",
-]
-metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
+import torch
+from torch import nn
+import torch.nn.functional as F
+import torch.fft
 
+def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axis=-1):
+    if nperseg is None:
+        nperseg = 256
+    if noverlap is None:
+        noverlap = nperseg // 2
 
-# %%
-metadata["sub+session"] = metadata.apply(lambda x: f"{x['subject_id']}_{x['session']}", axis=1)
-# %%
-# get lenght of dataset_names
-length = {}
-for dataset in dataset_names:
-    length[dataset] = metadata[metadata["dataset_name"] == dataset]["sub+session"].nunique()
+    # Move the specified axis to the last dimension for easier processing
+    signal = signal.transpose(axis, -1)
 
-# %%
-# create probability of draw a dataset 
-probs = {}
-alpha = 0.5
-for dataset in dataset_names:
-    probs[dataset] = alpha / len(dataset_names) + (1 - alpha) * (1 / length[dataset]) / sum([1 / length[dataset] for dataset in dataset_names])
-# %%
-
-# pick a dataset
-dataset_n = np.random.choice(list(prob.keys()), p=list(prob.values()))
-
-# %%
-dataset = MultiDomainDataset(metadata, )
-# %%
-dataset.metadata.query("run == @dataset_n")
-# %%
-from braindecode.samplers import RecordingSampler
-class SequenceSampler(RecordingSampler):
-    """Sample sequences of consecutive windows.
-
-    Parameters
-    ----------
-    metadata : pd.DataFrame
-        See RecordingSampler.
-    n_windows : int
-        Number of consecutive windows in a sequence.
-    n_windows_stride : int
-        Number of windows between two consecutive sequences.
-    random : bool
-        If True, sample sequences randomly. If False, sample sequences in
-        order.
-    random_state : np.random.RandomState | int | None
-        Random state.
-
-    Attributes
-    ----------
-    info : pd.DataFrame
-        See RecordingSampler.
-    file_ids : np.ndarray of ints
-        Array of shape (n_sequences,) that indicates from which file each
-        sequence comes from. Useful e.g. to do self-ensembling.
-    """
-
-    def __init__(
-        self, metadata, n_windows, n_windows_stride, probs, randomize=False, random_state=None, n_sequences=int(1e6),
-    ):
-        super().__init__(metadata, random_state=random_state)
-        self.randomize = randomize
-        self.n_windows = n_windows
-        self.n_sequences = n_sequences
-        self.n_windows_stride = n_windows_stride
-        self.start_inds, self.ind_dataset = self._compute_seq_start_inds()
-        self.probs = probs
-
-    def sample_dataset(self, ):
-        """Return a random dataset.
-
-        Returns
-        -------
-        int
-            Sampled class.
-        int
-            Index to the recording the class was sampled from.
-        """
-        return self.rng.choice(list(self.probs.keys()), p=list(self.probs.values()))
-
-    def _compute_seq_start_inds(self):
-        """Compute sequence start indices.
-
-        Returns
-        -------
-        np.ndarray :
-            Array of shape (n_sequences,) containing the indices of the first
-            windows of possible sequences.
-        np.ndarray :
-            Array of shape (n_sequences,) containing the unique file number of
-            each sequence. Useful e.g. to do self-ensembling.
-        """
-        end_offset = 1 - self.n_windows if self.n_windows > 1 else None
-        start_inds = (
-            self.info["index"]
-            .apply(lambda x: x[: end_offset : self.n_windows_stride])
-            .values
+    # Define the window function
+    if window == "hamming":
+        window_vals = torch.hamming_window(
+            nperseg, periodic=False, device=signal.device
         )
-        # get the run of each start multiindex
-        ind_dataset = self.info.index.get_level_values(2)
-        ind_dataset = [[ind_dataset[i]]*len(inds) for i, inds in enumerate(start_inds)]
+    elif window == "hann":
+        window_vals = torch.hann_window(nperseg, periodic=False, device=signal.device)
+    elif window is None:
+        window_vals = torch.ones(nperseg, device=signal.device)
+    else:
+        raise ValueError("Unsupported window type")
+
+    scaling = (window_vals * window_vals).sum()
+
+    # Calculate step size and number of segments
+    step = nperseg - noverlap
+    num_segments = (signal.shape[-1] - noverlap) // step
+
+    # Generate indices for all segments in one batch operation
+    indices = torch.arange(nperseg, device=signal.device).unsqueeze(
+        0
+    ) + step * torch.arange(num_segments, device=signal.device).unsqueeze(1)
+
+    # Extract and process all segments in one batch
+    segments = signal[..., indices]  # Shape: (..., num_segments, nperseg)
+    segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
+    windowed_segments = segments * window_vals  # Apply window
+
+    # Compute FFT for all segments in parallel using real output to avoid complex dtype
+    segment_fft = torch.view_as_real(torch.fft.rfft(windowed_segments, dim=-1))
+
+    # Compute magnitude squared manually (Re^2 + Im^2) / scaling
+    segment_psd = (segment_fft[..., 0] ** 2 + segment_fft[..., 1] ** 2) / (fs * scaling)
+
+    # Adjust for one-sided spectrum
+    if nperseg % 2:
+        segment_psd[..., 1:] *= 2
+    else:
+        segment_psd[..., 1:-1] *= 2
+
+    # Average over segments
+    psd = segment_psd.mean(dim=-2)
+
+    # Compute frequency axis
+    freqs = torch.fft.rfftfreq(nperseg, d=1 / fs)
+
+    # Reshape PSD to match the original dimensions
+    return freqs, psd.transpose(axis, -1)
+
+
+class PSDNorm(nn.Module):
+    def __init__(
+        self,
+        filter_size,
+        momentum=0.01,
+        track_running_stats=True,
+        reg=1e-7,
+        barycenter_init=None,
+        bary_learning=False,
+        center=True,
+        n_channels=1,
+    ):
+        # This layer is not always well compiled.
+        # The following two lines make sure it's run in eager mode if
+        # the compilation fails.
+        import torch._dynamo
+
+        torch._dynamo.config.suppress_errors = True
+
+        super(PSDNorm, self).__init__()
+        self.filter_size = filter_size
+        self.momentum = momentum
+        if bary_learning:
+            self.register_parameter(
+                "barycenter",
+                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1)),
+            )
+        else:
+            self.register_buffer(
+                "barycenter",
+                torch.zeros(1),
+            )
+        self.first_iter = True
+        self.track_running_stats = track_running_stats
+        self.reg = reg
+        self.barycenter_init = barycenter_init
+        self.bary_learning = bary_learning
+        self.center = center
+
+    def _update_barycenter(self, barycenter):
+        if self.first_iter:
+            self.barycenter = barycenter
+            self.first_iter = False
+        else:
+            self.barycenter = (
+                (1 - self.momentum) ** 2 * self.barycenter
+                + self.momentum**2 * barycenter
+                + 2
+                * self.momentum
+                * (1 - self.momentum)
+                * torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
+            )
+
+    def forward(self, x):
+        if x.dim() == 4:
+            squeeze = True
+            x = x.squeeze(2)
+        else:
+            squeeze = False
+        # x: (B, C, T)
+        # centered x
+        if self.center:
+            x = x - torch.mean(x, dim=-1, keepdim=True)
+        # compute psd for each channel using welch method
+        # psd: (B, C, F)
+
+        psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
+
+        # compute running barycenter of psd
+        # barycenter: (C, F,)
+        # update running barycenter
+        if self.training and self.track_running_stats and not self.bary_learning:
+            weights = torch.ones_like(psd) / psd.shape[-1]
+            new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
+            self._update_barycenter(new_barycenter.detach())
+
+        if self.bary_learning:
+            target = torch.exp(self.barycenter)
+        else:
+            target = self.barycenter
+        # compute filtermodel
+        # H: (B, C, F)
+
+        D = torch.sqrt(target) / torch.sqrt(psd)
+        H = torch.fft.irfft(D, dim=-1, n=self.filter_size)
+        H = torch.fft.fftshift(H, dim=-1)
+
+        # apply filter, convolute H with x
+        # x_filtered: (B, C, T)
+        H = torch.flip(H, dims=[-1])
+        B, C, T = x.shape
+        filters = H.view(-1, 1, H.shape[-1])
+        print("filters shape", filters.shape)
+        input_x = x.view(1, -1, T)
+        print("input_x shape", input_x.shape)
+        x_filtered = F.conv1d(input_x, filters, padding="same", groups=filters.shape[0])
+        x_filtered = x_filtered.view(B, C, -1)
+
+        if squeeze:
+            x_filtered = x_filtered.unsqueeze(2)
+        return x_filtered
+
+def extract_patches(image, patch_size, stride):
+    """Extracts patches from an image using unfolding."""
+    n_batches, n_chan, _, _ = image.shape
+    unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride)
+    patches = unfold(image).reshape(n_batches, n_chan, patch_size, patch_size, -1)
+    patches = patches.permute(0, 1, 4, 2, 3)  # Shape: (batch, num_patches, channels, patch_size, patch_size)
+    return patches
+
+
+def welch_psd_2d(image, fs=1.0, patch_size=32, stride=None, window="hamming"):
+    """Computes the PSD of an image using Welch's method with patches."""
+    if stride is None:
+        stride = patch_size // 2
+    if window == "hamming":
+        window_vals = torch.hamming_window(patch_size, periodic=False, device=image.device)
+    elif window == "hann":
+        window_vals = torch.hann_window(patch_size, periodic=False, device=image.device)
+    else:
+        window_vals = torch.ones(patch_size, device=image.device)
+
+    scaling = (window_vals * window_vals).sum()
+    patches = extract_patches(image, patch_size, stride)  # (batch, num_patches, patch_size, patch_size)
+    patches = patches - patches.mean(dim=(-2, -1), keepdim=True)  # Detrend
+    windowed_patches = patches * window_vals[None, None, :, None] * window_vals[None, None, None, :]
+
+    fft_patches = torch.fft.rfft2(windowed_patches, dim=(-2, -1))
+    psd_patches = torch.abs(fft_patches) ** 2 / (fs * scaling)
+
+    freqs_x = torch.fft.rfftfreq(patch_size, d=1/fs)
+    freqs_y = torch.fft.rfftfreq(patch_size, d=1/fs)
+
+    psd = psd_patches.mean(dim=2)  # Average over all patches
+    return freqs_x, freqs_y, psd
+
+
+class PSDNorm2d(nn.Module):
+    def __init__(
+        self,
+        filter_size,
+        momentum=0.01,
+        track_running_stats=True,
+        reg=1e-7,
+        barycenter_init=None,
+        bary_learning=False,
+        center=True,
+        n_channels=1,
+    ):
+        super(PSDNorm2d, self).__init__()
+        self.filter_size = filter_size
+        self.momentum = momentum
+        if bary_learning:
+            self.register_parameter(
+                "barycenter",
+                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
+            )
+        else:
+            self.register_buffer(
+                "barycenter",
+                torch.zeros(1),
+            )
+        self.first_iter = True
+        self.track_running_stats = track_running_stats
+        self.reg = reg
+        self.barycenter_init = barycenter_init
+        self.bary_learning = bary_learning
+        self.center = center
+
+    def _update_barycenter(self, barycenter,):
+        if self.first_iter:
+            self.barycenter = barycenter
+            self.first_iter = False
+        else:
+            self.barycenter = (
+                (1 - self.momentum)**2 * self.barycenter
+                + self.momentum**2 * barycenter
+                + 2 * self.momentum * (1 - self.momentum) *
+                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log( barycenter)))
+            )
+
+    def forward(self, x):
+        # x: (B, C, S, S)
+        # centered x
+        if self.center:
+            x = x - x.mean(dim=[-2, -1], keepdim=True)
+        # compute psd for each channel using welch method
+        # psd: (B, C, F, F)
+
+        psd = welch_psd_2d(x, window=None, patch_size=self.filter_size)[2] + self.reg
+        # compute running barycenter of psd
+        # barycenter: (C, F,)
+        # update running barycenter
+        if self.training and self.track_running_stats and not self.bary_learning:
+            weights = torch.ones_like(psd) / psd.shape[-1]
+            new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
+            self._update_barycenter(new_barycenter.detach())
+
+        if self.bary_learning:
+            target = torch.exp(self.barycenter)
+        else:
+            target = self.barycenter
+        # compute filtermodel
+        # H: (B, C, F)
+
+        D = torch.sqrt(target) / torch.sqrt(psd)
+        H = torch.fft.irfft(D, dim=-1)
+        H = torch.fft.fftshift(H, dim=-1)
+
+        # apply filter, convolute H with x
+        # x_filtered: (B, C, T)
+        H = torch.flip(H, dims=[-1])
         
-        start_inds = np.concatenate(start_inds)
-        ind_dataset = np.concatenate(ind_dataset)
+        print("H shape", H.shape)
+        print("x shape", x.shape)
+        n_batch, n_chan, h, w = H.shape
+        filters = H.view(-1, 1, h, w)
+        _, _, h, w = x.shape
+        input_x = x.view(1, -1, h, w)
+        print("filters shape", filters.shape)
+        print("input_x shape", input_x.shape)
+        x_filtered = F.conv2d(input_x, filters, padding="same", groups=filters.shape[0])
+        x_filtered = x_filtered.view(n_batch, n_chan, h, w)
 
-        return start_inds, ind_dataset
-
-    def __len__(self):
-        return len(self.start_inds)
-
-    def __iter__(self):
-        for _ in range(self.n_sequences):
-            dataset = self.sample_dataset()
-            start_inds = self.start_inds.copy()
-            ind_dataset = self.ind_dataset.copy()
-            idx_selected = np.where(ind_dataset == dataset)[0]
-            id_selected = np.random.choice(idx_selected)
-            start_ind = start_inds[id_selected]
-            yield tuple(range(start_ind, start_ind + self.n_windows)), dataset
+        return x_filtered
 
 
 # %%
-sampler = SequenceSampler(
-    dataset.metadata,
-    n_windows=35,
-    n_windows_stride=1,
-    random_state=42,
-    randomize=False,
-    probs=probs,
-)
+# Example usage
+x = torch.randn(5, 64, 48, 48)  # Batch of 2, 3 channels, 1024 time points
+filter_size = 9
+psd_norm = PSDNorm2d(filter_size, n_channels=64)
+x_filtered = psd_norm(x)
+print(x_filtered.shape)  # Should be the same shape as x
 
 # %%
-for inds in sampler:
-    print(inds)
-    if inds[1] == "SHHS":
-        break
-# %%
-[len(inds) for inds in sampler.start_inds]
-# %%
-sampler.rng.choice(list(sampler.probs.keys()), p=list(sampler.probs.values()))
-# %%
-list(sampler.probs.keys())
-# %%
-probs.keys()
+# apply to signal 1D
+
+x = torch.randn(5, 64, 1024)  # Batch of 2, 3 channels, 1024 time points
+filter_size = 9
+psd_norm = PSDNorm(filter_size, n_channels=64)
+x_filtered = psd_norm(x)
+print(x_filtered.shape)  # Should be the same shape as x
+
 # %%
