@@ -12,6 +12,10 @@ from scipy.signal import convolve
 from typing import Iterable
 
 import pandas as pd
+import lmdb
+import pickle
+import cv2
+from tqdm import tqdm
 
 from temporal_norm.config import DATA_H5_PATH
 from temporal_norm.utils._sampler import BalancedSequenceSampler
@@ -117,7 +121,7 @@ class MultiDomainDataset(torch.utils.data.Dataset):
 
         # Get sample indices
         sample_indices = self.samples[indices]
-        
+
         # Check if the samples are contiguous
         # THIS SHOULD BE REMOVED IN THE FUTURE
         if np.all(np.diff(sample_indices) == 1):
@@ -227,3 +231,77 @@ def get_dataloader(
         drop_last=drop_last,
     )
     return dataloader
+
+
+class LMDBImageDataset(torch.utils.data.Dataset):
+    def __init__(self, lmdb_path, transform=None, domain_filter=None):
+        self.env = lmdb.open(lmdb_path, readonly=True, lock=False)
+        self.transform = transform
+        self.keys = []
+        self.meta = []
+
+        with self.env.begin() as txn:
+            cursor = txn.cursor()
+            for key, value in cursor:
+                item = pickle.loads(value)
+                if domain_filter is None or item['domain'] in domain_filter:
+                    self.keys.append(key)
+                    self.meta.append(item)
+
+    def __getitem__(self, idx):
+        key = self.keys[idx]
+        with self.env.begin() as txn:
+            value = txn.get(key)
+            item = pickle.loads(value)
+            img_data = np.frombuffer(item['image'], dtype=np.uint8)
+            img = cv2.imdecode(img_data, cv2.IMREAD_COLOR)
+
+        if self.transform:
+            img = self.transform(img)
+
+        label = item['tumor']
+        return img, label, item['domain']
+
+    def __len__(self):
+        return len(self.keys)
+
+
+def create_lmdb_with_metadata(data_path, metadata_path, lmdb_path):
+
+    image_paths = [image for patient in data_path.iterdir() if patient.is_dir() for image in patient.iterdir() if image.suffix == ".png"]
+    metadata = pd.read_csv(metadata_path)
+    y =  metadata["tumor"].values
+    domains = metadata["center"].values
+    patients = metadata["patient"].values
+
+    avg_image_size = 0
+    num_images = len(image_paths)
+    # estimated image size with os.path.getsize
+    for image_path in tqdm(image_paths, desc="Calculating average image size"):
+        avg_image_size += os.path.getsize(image_path)
+    avg_image_size = avg_image_size / num_images
+    map_size = int(num_images * avg_image_size * 1.5)
+
+    print(num_images, len(domain), len(y), len(patients))
+    env = lmdb.open(lmdb_path, map_size=map_size)
+
+    with env.begin(write=True) as txn:
+        for idx in tqdm(range(num_images), desc="Processing images"):
+            patient_id = patients[idx]
+            domain_id = domain[idx]
+            tumor_id = y[idx]
+            img_path = image_paths[idx]
+            img = cv2.imread(img_path)
+            _, img_encoded = cv2.imencode('.png', img)
+
+            key = f"{idx:08d}".encode("ascii")
+            value = pickle.dumps({
+                "image": img_encoded.tobytes(),
+                "patient_id": patient_id,
+                "tumor": y[idx].item(),
+                "domain": domain[idx].item(),
+                "path": img_path
+            })
+            txn.put(key, value)
+
+    print(f"Saved {num_images} images to LMDB at: {lmdb_path}")

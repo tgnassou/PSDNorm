@@ -4,6 +4,8 @@ from ._dataset import (
     MultiDomainDataset,
     get_subject_ids,
     get_dataloader,
+    LMDBImageDataset,
+    create_lmdb_with_metadata,
 )
     
 from ._create_metadata import create_data, create_metadata
@@ -21,4 +23,6 @@ __all__ = [
     "get_dataloader",
     "get_probs",
     "get_center_label",
+    "create_lmdb_with_metadata",
+    "LMDBImageDataset",
 ]

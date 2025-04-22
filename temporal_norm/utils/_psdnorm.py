@@ -79,6 +79,7 @@ class PSDNorm(nn.Module):
         # The following two lines make sure it's run in eager mode if
         # the compilation fails.
         import torch._dynamo
+
         torch._dynamo.config.suppress_errors = True
 
         super(PSDNorm, self).__init__()
@@ -87,7 +88,7 @@ class PSDNorm(nn.Module):
         if bary_learning:
             self.register_parameter(
                 "barycenter",
-                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
+                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1)),
             )
         else:
             self.register_buffer(
@@ -107,10 +108,12 @@ class PSDNorm(nn.Module):
             self.first_iter = False
         else:
             self.barycenter = (
-                (1 - self.momentum)**2 * self.barycenter
+                (1 - self.momentum) ** 2 * self.barycenter
                 + self.momentum**2 * barycenter
-                + 2 * self.momentum * (1 - self.momentum) *
-                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
+                + 2
+                * self.momentum
+                * (1 - self.momentum)
+                * torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
             )
 
     def forward(self, x):
@@ -159,4 +162,138 @@ class PSDNorm(nn.Module):
 
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
+        return x_filtered
+
+
+def extract_patches(image, patch_size, stride):
+    """Extracts patches from an image using unfolding."""
+    n_batches, n_chan, _, _ = image.shape
+    unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride)
+    patches = unfold(image).reshape(n_batches, n_chan, patch_size, patch_size, -1)
+    patches = patches.permute(
+        0, 1, 4, 2, 3
+    )  # Shape: (batch, num_patches, channels, patch_size, patch_size)
+    return patches
+
+
+def welch_psd_2d(image, fs=1.0, patch_size=32, stride=None, window="hamming"):
+    """Computes the PSD of an image using Welch's method with patches."""
+    if stride is None:
+        stride = patch_size // 2
+    if window == "hamming":
+        window_vals = torch.hamming_window(
+            patch_size, periodic=False, device=image.device
+        )
+    elif window == "hann":
+        window_vals = torch.hann_window(patch_size, periodic=False, device=image.device)
+    else:
+        window_vals = torch.ones(patch_size, device=image.device)
+
+    scaling = (window_vals * window_vals).sum()
+    patches = extract_patches(
+        image, patch_size, stride
+    )  # (batch, num_patches, patch_size, patch_size)
+    patches = patches - patches.mean(dim=(-2, -1), keepdim=True)  # Detrend
+    windowed_patches = (
+        patches * window_vals[None, None, :, None] * window_vals[None, None, None, :]
+    )
+
+    fft_patches = torch.fft.rfft2(windowed_patches, dim=(-2, -1))
+    psd_patches = torch.abs(fft_patches) ** 2 / (fs * scaling)
+
+    freqs_x = torch.fft.rfftfreq(patch_size, d=1 / fs)
+    freqs_y = torch.fft.rfftfreq(patch_size, d=1 / fs)
+
+    psd = psd_patches.mean(dim=2)  # Average over all patches
+    return freqs_x, freqs_y, psd
+
+
+class PSDNorm2d(nn.Module):
+    def __init__(
+        self,
+        filter_size,
+        momentum=0.01,
+        track_running_stats=True,
+        reg=1e-7,
+        barycenter_init=None,
+        bary_learning=False,
+        center=True,
+        n_channels=1,
+    ):
+        super(PSDNorm2d, self).__init__()
+        self.filter_size = filter_size
+        self.momentum = momentum
+        if bary_learning:
+            self.register_parameter(
+                "barycenter",
+                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1)),
+            )
+        else:
+            self.register_buffer(
+                "barycenter",
+                torch.zeros(1),
+            )
+        self.first_iter = True
+        self.track_running_stats = track_running_stats
+        self.reg = reg
+        self.barycenter_init = barycenter_init
+        self.bary_learning = bary_learning
+        self.center = center
+
+    def _update_barycenter(
+        self,
+        barycenter,
+    ):
+        if self.first_iter:
+            self.barycenter = barycenter
+            self.first_iter = False
+        else:
+            self.barycenter = (
+                (1 - self.momentum) ** 2 * self.barycenter
+                + self.momentum**2 * barycenter
+                + 2
+                * self.momentum
+                * (1 - self.momentum)
+                * torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
+            )
+
+    def forward(self, x):
+        # x: (B, C, S, S)
+        # centered x
+        if self.center:
+            x = x - x.mean(dim=[-2, -1], keepdim=True)
+        # compute psd for each channel using welch method
+        # psd: (B, C, F, F)
+
+        psd = welch_psd_2d(x, window=None, patch_size=self.filter_size)[2] + self.reg
+        # compute running barycenter of psd
+        # barycenter: (C, F,)
+        # update running barycenter
+        if self.training and self.track_running_stats and not self.bary_learning:
+            weights = torch.ones_like(psd) / psd.shape[-1]
+            new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
+            self._update_barycenter(new_barycenter.detach())
+
+        if self.bary_learning:
+            target = torch.exp(self.barycenter)
+        else:
+            target = self.barycenter
+        # compute filtermodel
+        # H: (B, C, F)
+
+        D = torch.sqrt(target) / torch.sqrt(psd)
+        H = torch.fft.irfft(D, dim=-1)
+        H = torch.fft.fftshift(H, dim=-1)
+
+        # apply filter, convolute H with x
+        # x_filtered: (B, C, T)
+        H = torch.flip(H, dims=[-1])
+
+        n_batch, n_chan, h, w = H.shape
+        filters = H.view(-1, 1, h, w)
+        _, _, h, w = x.shape
+        input_x = x.view(1, -1, h, w)
+        x_filtered = F.conv2d(input_x, filters, padding="same", groups=filters.shape[0])
+        x_filtered = x_filtered.view(n_batch, n_chan, h, w)
+
         return x_filtered
