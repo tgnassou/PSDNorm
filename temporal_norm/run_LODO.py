@@ -40,6 +40,9 @@ parser.add_argument("--balanced", action="store_true")
 parser.add_argument("--use_amp", action="store_true")
 parser.add_argument("--num_workers", type=int, default=5)
 parser.add_argument("--print_tqdm", action="store_true")
+parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--lr", type=float, default=1e-3)
+parser.add_argument("--compile", action="store_true")
 
 args = parser.parse_args()
 
@@ -53,6 +56,8 @@ balanced = args.balanced
 use_amp = args.use_amp
 num_workers = args.num_workers
 print_tqdm = args.print_tqdm
+seed = args.seed
+lr = args.lr
 if use_amp:
     print("BE CAREFUL! AMP is enabled.")
 
@@ -78,8 +83,8 @@ metadata = pd.read_parquet("metadata/metadata_sleep.parquet", columns=["dataset_
 print(f"Percentage: {percentage}")
 modules = []
 
+print(f"seed: {seed}")
 # HPs for the experiment
-seed = 42
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 rng = check_random_state(seed)
@@ -99,7 +104,6 @@ persistent_workers = False
 in_chans = 2
 n_classes = 5
 input_size_samples = 3000
-lr = 1e-4
 
 if norm == "BatchNorm":
     filter_size = None
@@ -238,7 +242,7 @@ elif model_name == "CareSleepNet":
     model = CareSleepNet(
         n_chans=in_chans,
         n_outputs=n_classes,
-        n_sequences=n_windows,
+        n_windows=n_windows,
         filter_size=filter_size,
         norm=norm,
     )
@@ -259,7 +263,9 @@ print(f"Trainable parameters: {num_trainable_params:,}")
 model.to(device)
 if use_amp:
     model = model.to(torch.bfloat16)
-model = torch.compile(model)
+if args.compile:
+    print("Compiling model with torch.compile")
+    model = torch.compile(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 history = []
@@ -268,8 +274,6 @@ print()
 print("Start training")
 min_val_loss = np.inf
 for epoch in range(n_epochs):
-    print()
-    print(f"Epoch: {epoch}")
     time_start = time.time()
     model.train()
     train_loss = np.zeros(len(dataloader_train))

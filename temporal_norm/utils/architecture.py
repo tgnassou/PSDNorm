@@ -776,8 +776,49 @@ class Transpose(nn.Module):
         return x.transpose(1, 2)
 
 
+class MergeWindows(nn.Module):
+    def __init__(self, n_windows):
+        super().__init__()
+        self.n_windows = n_windows
+
+    def forward(self, x):
+        # x: (n_batch * n_windows, n_chans, n_times)
+        n_batch_times_n_windows, n_chans, n_times = x.shape
+        n_batch = n_batch_times_n_windows // self.n_windows
+        x = x.view(n_batch, self.n_windows, n_chans, n_times)
+        x = x.permute(0, 2, 3, 1)  # (n_batch, n_chans, n_times, n_windows)
+        x = x.reshape(n_batch, n_chans, n_times * self.n_windows)
+        return x
+
+
+class UnmergeWindows(nn.Module):
+    def __init__(self, n_windows):
+        super().__init__()
+        self.n_windows = n_windows
+
+    def forward(self, x):
+        # x: (n_batch, n_chans, n_times * n_windows)
+        n_batch, n_chans, total_time = x.shape
+        n_times = total_time // self.n_windows
+        x = x.view(n_batch, n_chans, n_times, self.n_windows)
+        x = x.permute(0, 3, 1, 2)  # (n_batch, n_windows, n_chans, n_times)
+        x = x.reshape(n_batch * self.n_windows, n_chans, n_times)
+        return x
+
+
 class MSDconv(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding, groups):
+    def __init__(
+        self,
+        in_planes,
+        out_planes,
+        kernel_size,
+        stride,
+        padding,
+        groups,
+        n_windows=None,
+        norm="BatchNorm",
+        filter_size=None,
+    ):
         super(MSDconv, self).__init__()
         self.downsample = nn.Conv1d(
             in_channels=in_planes,
@@ -787,7 +828,20 @@ class MSDconv(nn.Module):
             bias=False,
             groups=groups,
         )
-        self.bn0 = nn.BatchNorm1d(out_planes)
+        if norm == "BatchNorm":
+            self.norm0 = nn.BatchNorm1d(out_planes)
+        elif norm == "PSDNorm":
+            self.norm0 = nn.Sequential(
+                MergeWindows(n_windows),
+                PSDNorm(filter_size, n_channels=out_planes),
+                UnmergeWindows(n_windows),
+            )
+        elif norm == "InstanceNorm":
+            self.norm0 = nn.InstanceNorm1d(num_features=out_planes)
+        elif norm == "LayerNorm":
+            self.norm0 = nn.LayerNorm(normalized_shape=[out_planes, filter_size])
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.dconv1 = nn.Conv1d(
             in_channels=in_planes,
             out_channels=out_planes,
@@ -798,7 +852,21 @@ class MSDconv(nn.Module):
             dilation=1,
             groups=groups,
         )
-        self.bn1 = nn.BatchNorm1d(out_planes)
+        if norm == "BatchNorm":
+            self.norm1 = nn.BatchNorm1d(out_planes)
+        elif norm == "PSDNorm":
+            self.norm1 = nn.Sequential(
+                MergeWindows(n_windows),
+                PSDNorm(filter_size, n_channels=out_planes),
+                UnmergeWindows(n_windows),
+            )
+        elif norm == "InstanceNorm":
+            self.norm1 = nn.InstanceNorm1d(num_features=out_planes)
+        elif norm == "LayerNorm":
+            self.norm1 = nn.LayerNorm(normalized_shape=[out_planes, filter_size])
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
+
         self.dconv2 = nn.Conv1d(
             in_channels=in_planes,
             out_channels=out_planes,
@@ -809,7 +877,20 @@ class MSDconv(nn.Module):
             dilation=2,
             groups=groups,
         )
-        self.bn2 = nn.BatchNorm1d(out_planes)
+        if norm == "BatchNorm":
+            self.norm2 = nn.BatchNorm1d(out_planes)
+        elif norm == "PSDNorm":
+            self.norm2 = nn.Sequential(
+                MergeWindows(n_windows),
+                PSDNorm(filter_size, n_channels=out_planes),
+                UnmergeWindows(n_windows),
+            )
+        elif norm == "InstanceNorm":
+            self.norm2 = nn.InstanceNorm1d(num_features=out_planes)
+        elif norm == "LayerNorm":
+            self.norm2 = nn.LayerNorm(normalized_shape=[out_planes, filter_size])
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.dconv3 = nn.Conv1d(
             in_channels=in_planes,
             out_channels=out_planes,
@@ -820,7 +901,20 @@ class MSDconv(nn.Module):
             dilation=4,
             groups=groups,
         )
-        self.bn3 = nn.BatchNorm1d(out_planes)
+        if norm == "BatchNorm":
+            self.norm3 = nn.BatchNorm1d(out_planes)
+        elif norm == "PSDNorm":
+            self.norm3 = nn.Sequential(
+                MergeWindows(n_windows),
+                PSDNorm(filter_size, n_channels=out_planes),
+                UnmergeWindows(n_windows),
+            )
+        elif norm == "InstanceNorm":
+            self.norm3 = nn.InstanceNorm1d(num_features=out_planes)
+        elif norm == "LayerNorm":
+            self.norm3 = nn.LayerNorm(normalized_shape=[out_planes, filter_size])
+        else:
+            raise ValueError(f"Unknown norm type: {norm}")
         self.dropout = nn.Dropout(0.1)
         self.layer_norm = nn.LayerNorm(out_planes, eps=1e-6)
         self.apply(self.init_weights)
@@ -835,10 +929,10 @@ class MSDconv(nn.Module):
             module.bias.data.zero_()
 
     def forward(self, x):
-        down = self.bn0(self.downsample(x))
-        x1 = F.gelu(self.bn1(self.dconv1(x)))
-        x2 = F.gelu(self.bn2(self.dconv2(x)))
-        x3 = F.gelu(self.bn3(self.dconv3(x)))
+        down = self.norm0(self.downsample(x))
+        x1 = F.gelu(self.norm1(self.dconv1(x)))
+        x2 = F.gelu(self.norm2(self.dconv2(x)))
+        x3 = F.gelu(self.norm3(self.dconv3(x)))
         out = down + x1 + x2 + x3
         out = self.dropout(out)
         out = self.layer_norm(out.transpose(1, 2)).transpose(1, 2)
@@ -933,7 +1027,6 @@ class BertSelfAttention(nn.Module):
         # to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
         attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
@@ -1077,10 +1170,20 @@ class UniEncoder(nn.Module):
 
 
 class EpochEncoder(nn.Module):
-    def __init__(self, in_plane):
+    def __init__(self, in_plane, n_windows=None, norm="BatchNorm", filter_size=None):
         super(EpochEncoder, self).__init__()
         self.encoder = nn.Sequential(
-            MSDconv(in_plane, 64, kernel_size=49, stride=12, padding=24, groups=1),
+            MSDconv(
+                in_plane,
+                64,
+                kernel_size=49,
+                stride=12,
+                padding=24,
+                groups=1,
+                norm=norm,
+                filter_size=filter_size,
+                n_windows=n_windows,
+            ),
             nn.MaxPool1d(kernel_size=9, stride=2, padding=4),
             MSDconv(64, 128, kernel_size=9, stride=1, padding=4, groups=1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
@@ -1113,14 +1216,26 @@ class EpochEncoder(nn.Module):
 
 
 class CareSleepNet(nn.Module):
-    def __init__(self, n_chans, n_sequences, dropout=0.1, n_outputs=5, filter_size=None, norm="BatchNorm"):
+    def __init__(
+        self,
+        n_chans,
+        n_windows,
+        dropout=0.1,
+        n_outputs=5,
+        filter_size=None,
+        norm="BatchNorm",
+    ):
         super(CareSleepNet, self).__init__()
         self.n_chans = n_chans
-        self.n_sequences = n_sequences
-        self.epoch_encoder_eeg = EpochEncoder(n_chans//2)
-        self.epoch_encoder_eog = EpochEncoder(n_chans//2)
+        self.n_windows = n_windows
+        self.epoch_encoder_eeg = EpochEncoder(
+            n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
+        )
+        self.epoch_encoder_eog = EpochEncoder(
+            n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
+        )
         self.eog2eeg_encoder = CMTransformerEncoder(
-            seq_length=n_sequences,
+            seq_length=n_windows,
             num_layers=1,
             num_heads=8,
             hidden_dim=512,
@@ -1129,7 +1244,7 @@ class CareSleepNet(nn.Module):
             attention_dropout=dropout,
         )
         self.eeg2eog_encoder = CMTransformerEncoder(
-            seq_length=n_sequences,
+            seq_length=n_windows,
             num_layers=1,
             num_heads=8,
             hidden_dim=512,
@@ -1138,7 +1253,7 @@ class CareSleepNet(nn.Module):
             attention_dropout=dropout,
         )
         self.sequence_encoder = TransformerEncoder(
-            seq_length=n_sequences,
+            seq_length=n_windows,
             num_layers=1,
             num_heads=8,
             hidden_dim=512,
@@ -1150,16 +1265,14 @@ class CareSleepNet(nn.Module):
 
     def forward(self, x):
         batch_size = x.shape[0]
-
-        x_eeg = x[:, :, :self.n_chans//2, :]
-        x_eeg = x_eeg.view(batch_size * self.n_sequences, self.n_chans//2, -1)
+        x_eeg = x[:, :, : self.n_chans // 2, :]
+        x_eeg = x_eeg.view(batch_size * self.n_windows, self.n_chans // 2, -1)
         x_eeg = self.epoch_encoder_eeg(x_eeg)
-        x_eeg = x_eeg.view(batch_size, self.n_sequences, -1)
-
-        x_eog = x[:, :, self.n_chans//2:, :]
-        x_eog = x_eog.view(batch_size * self.n_sequences,  self.n_chans//2, -1)
+        x_eeg = x_eeg.view(batch_size, self.n_windows, -1)
+        x_eog = x[:, :, self.n_chans // 2:, :]
+        x_eog = x_eog.view(batch_size * self.n_windows, self.n_chans // 2, -1)
         x_eog = self.epoch_encoder_eog(x_eog)
-        x_eog = x_eog.view(batch_size, self.n_sequences, -1)
+        x_eog = x_eog.view(batch_size, self.n_windows, -1)
         x_eeg_ = self.eog2eeg_encoder(x_eeg, x_eog)
         x_eog_ = self.eeg2eog_encoder(x_eog, x_eeg)
         x = x_eeg_ + x_eog_
@@ -1352,7 +1465,7 @@ class CMTransformerEncoder(nn.Module):
 
 class LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
-        """Construct a layernorm module in the TF style (epsilon inside the square root)."""
+        """Construct a layernorm module in the TF style(epsilon inside the square root)."""
         super(LayerNorm, self).__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.bias = nn.Parameter(torch.zeros(hidden_size))
