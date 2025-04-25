@@ -1087,7 +1087,7 @@ class EpochEncoder(nn.Module):
     def __init__(
             self,
             in_plane,
-            num_attention_heads=8,
+            num_attention_heads,
             n_windows=None,
             norm="BatchNorm",
             filter_size=None
