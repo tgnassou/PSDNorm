@@ -769,13 +769,11 @@ class DeepSleepNet(EEGModuleMixin, nn.Module):
 
 
 class Transpose(nn.Module):
-    def __init__(self, dim0=1, dim1=2):
-        super().__init__()
-        self.dim0 = dim0
-        self.dim1 = dim1
+    def __init__(self):
+        super(Transpose, self).__init__()
 
     def forward(self, x):
-        return x.transpose(self.dim0, self.dim1)
+        return x.transpose(1, 2)
 
 
 class MergeWindows(nn.Module):
@@ -784,10 +782,11 @@ class MergeWindows(nn.Module):
         self.n_windows = n_windows
 
     def forward(self, x):
+        # x: (n_batch * n_windows, n_chans, n_times)
         n_batch_times_n_windows, n_chans, n_times = x.shape
         n_batch = n_batch_times_n_windows // self.n_windows
         x = x.view(n_batch, self.n_windows, n_chans, n_times)
-        x = x.permute(0, 2, 3, 1)
+        x = x.permute(0, 2, 3, 1)  # (n_batch, n_chans, n_times, n_windows)
         x = x.reshape(n_batch, n_chans, n_times * self.n_windows)
         return x
 
@@ -798,10 +797,11 @@ class UnmergeWindows(nn.Module):
         self.n_windows = n_windows
 
     def forward(self, x):
+        # x: (n_batch, n_chans, n_times * n_windows)
         n_batch, n_chans, total_time = x.shape
         n_times = total_time // self.n_windows
         x = x.view(n_batch, n_chans, n_times, self.n_windows)
-        x = x.permute(0, 3, 1, 2)
+        x = x.permute(0, 3, 1, 2)  # (n_batch, n_windows, n_chans, n_times)
         x = x.reshape(n_batch * self.n_windows, n_chans, n_times)
         return x
 
@@ -815,10 +815,10 @@ class MSDconv(nn.Module):
         stride,
         padding,
         groups,
-        dilation_factors = [1, 2, 4],
-        norm = "BatchNorm",
-        n_windows = None,
-        filter_size = None,
+        dilation_factors=[1, 2, 4],
+        n_windows=None,
+        norm="BatchNorm",
+        filter_size=None,
     ):
         super().__init__()
         self.in_planes = in_planes
@@ -851,14 +851,13 @@ class MSDconv(nn.Module):
         self.norms = nn.ModuleList()
 
         for i, dilation in enumerate(dilation_factors):
-            effective_padding = padding * dilation
             self.dconvs.append(
                 nn.Conv1d(
                     in_channels=in_planes,
                     out_channels=out_planes,
                     kernel_size=kernel_size,
                     stride=stride,
-                    padding=effective_padding,
+                    padding=padding * dilation,
                     bias=False,
                     dilation=dilation,
                     groups=groups,
@@ -893,9 +892,9 @@ class MSDconv(nn.Module):
         down = self.norm0(self.downsample(x))
 
         out_branches = []
-        for i, dconv in enumerate(self.dconvs):
+        for dconv, norm in zip(self.dconvs, self.norms):
             branch_out = dconv(x)
-            branch_out = self.norms[i](branch_out)
+            branch_out = norm(branch_out)
             branch_out = self.activation(branch_out)
             out_branches.append(branch_out)
 
@@ -908,12 +907,12 @@ class MSDconv(nn.Module):
 class UniEncoder(nn.Module):
     def __init__(
         self,
-        hidden_size = 512,
-        num_hidden_layers = 1,
-        num_attention_heads = 8,
-        intermediate_size = 2048,
-        hidden_act = "gelu",
-        hidden_dropout_prob = 0.1,
+        hidden_size=512,
+        num_hidden_layers=1,
+        num_attention_heads=8,
+        intermediate_size=2048,
+        hidden_act="gelu",
+        hidden_dropout_prob=0.1,
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -933,7 +932,6 @@ class UniEncoder(nn.Module):
             num_layers=num_hidden_layers,
             norm=nn.LayerNorm(hidden_size)
         )
-        self.attention_probs = None
 
     def forward(self, x):
         return self.encoder(x)
@@ -999,7 +997,11 @@ class TransformerEncoder(nn.Module):
         layers = OrderedDict()
         for i in range(num_layers):
             layers[f"encoder_layer_{i}"] = EncoderBlock(
-                num_heads, hidden_dim, mlp_dim, dropout, attention_dropout
+                num_heads=num_heads,
+                hidden_dim=hidden_dim,
+                mlp_dim=mlp_dim,
+                dropout=dropout,
+                attention_dropout=attention_dropout,
             )
         self.layers = nn.ModuleList(layers.values())
         self.ln = nn.LayerNorm(hidden_dim)
@@ -1038,11 +1040,11 @@ class CMEncoderBlock(nn.Module):
     def forward(self, input, clue):
         q = self.ln_q(clue)
         kv = self.ln_kv(input)
-        attn_output, _ = self.cross_attention(
+        x, _ = self.cross_attention(
             query=q, key=kv, value=kv, need_weights=False
         )
-        attn_output_dropout = self.dropout(attn_output)
-        x = input + attn_output_dropout
+        x = self.dropout(x)
+        x = input + x
 
         y = self.ln_2(x)
         y = self.mlp(y)
@@ -1116,36 +1118,36 @@ class EpochEncoder(nn.Module):
 
             create_msdconv(dims[1], dims[2], kernels[1], strides[1], paddings[1], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            Transpose(1, 2),
+            Transpose(),
             UniEncoder(
                 hidden_size=dims[2],
                 num_hidden_layers=1,
                 intermediate_size=dims[2]*expansion_factor,
                 num_attention_heads=num_attention_heads
             ),
-            Transpose(1, 2),
+            Transpose(),
 
             create_msdconv(dims[2], dims[3], kernels[2], strides[1], paddings[2], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            Transpose(1, 2),
+            Transpose(),
             UniEncoder(
                 hidden_size=dims[3],
                 num_hidden_layers=1,
                 intermediate_size=dims[3]*expansion_factor,
                 num_attention_heads=num_attention_heads
             ),
-            Transpose(1, 2),
+            Transpose(),
 
             create_msdconv(dims[3], dims[4], kernels[3], strides[1], paddings[3], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
-            Transpose(1, 2),
+            Transpose(),
             UniEncoder(
                 hidden_size=dims[4],
                 num_hidden_layers=1,
                 intermediate_size=dims[4]*expansion_factor,
                 num_attention_heads=num_attention_heads
             ),
-            Transpose(1, 2),
+            Transpose(),
         )
 
         self.out_dim = dims[-1]
@@ -1163,13 +1165,13 @@ class CareSleepNet(nn.Module):
         self,
         n_chans,
         n_windows,
-        dropout = 0.1,
-        n_outputs = 5,
-        filter_size = None,
-        norm = "BatchNorm",
-        transformer_mlp_dim = 512,
-        transformer_heads = 8,
-        transformer_layers = 1,
+        dropout=0.1,
+        n_outputs=5,
+        filter_size=None,
+        norm="BatchNorm",
+        transformer_mlp_dim=512,
+        transformer_heads=8,
+        transformer_layers=1,
     ):
         super().__init__()
         if n_chans % 2 != 0:
