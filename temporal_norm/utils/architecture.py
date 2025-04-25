@@ -1092,12 +1092,11 @@ class EpochEncoder(nn.Module):
     ):
         super().__init__()
         # dims = [in_plane, 64, 128, 256, 512]
-        dims = [in_plane, 16, 32, 64, 128]
+        dims = [in_plane, 16, 32, 64, 512]
         strides = [12, 1, 1, 1]
         kernels = [49, 9, 9, 9]
         paddings = [24, 4, 4, 4]
-        # expansion_factor = 4
-        expansion_factor = 2
+        expansion_factor = 4
 
         def create_msdconv(in_p, out_p, k, s, p, g):
             return MSDconv(
@@ -1169,8 +1168,7 @@ class CareSleepNet(nn.Module):
         filter_size = None,
         norm = "BatchNorm",
         transformer_mlp_dim = 512,
-        # transformer_heads = 8,
-        transformer_heads = 4,
+        transformer_heads = 8,
         transformer_layers = 1,
     ):
         super().__init__()
