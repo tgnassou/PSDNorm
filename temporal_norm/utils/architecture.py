@@ -935,25 +935,8 @@ class SimplifiedUniEncoder(nn.Module):
         )
         self.attention_probs = None
 
-    def forward(self, x, attention_mask=None, output_all_encoded_layers=False):
-        padding_mask = None
-        if attention_mask is not None:
-            padding_mask = (attention_mask == 0)
-
-        if output_all_encoded_layers:
-            all_encoder_layers = []
-            hidden_states = x
-            for layer_module in self.encoder.layers:
-                hidden_states = layer_module(hidden_states, src_key_padding_mask=padding_mask)
-                all_encoder_layers.append(hidden_states)
-            if self.encoder.norm is not None:
-                for i in range(len(all_encoder_layers)):
-                   all_encoder_layers[i] = self.encoder.norm(all_encoder_layers[i])
-            return all_encoder_layers
-        else:
-            encoded_output = self.encoder(x, src_key_padding_mask=padding_mask)
-            self.attention_probs = None
-            return encoded_output
+    def forward(self, x):
+        return self.encoder(x)
 
 
 class MLPBlock(nn.Sequential):
@@ -985,10 +968,10 @@ class EncoderBlock(nn.Module):
         self.ln_2 = nn.LayerNorm(hidden_dim)
         self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
 
-    def forward(self, input, src_key_padding_mask = None):
+    def forward(self, input):
         x = self.ln_1(input)
         attn_output, _ = self.self_attention(
-            query=x, key=x, value=x, key_padding_mask=src_key_padding_mask, need_weights=False
+            query=x, key=x, value=x, need_weights=False
         )
         x = input + self.dropout(attn_output)
 
@@ -1021,7 +1004,7 @@ class TransformerEncoder(nn.Module):
         self.layers = nn.ModuleList(layers.values())
         self.ln = nn.LayerNorm(hidden_dim)
 
-    def forward(self, input, src_key_padding_mask = None):
+    def forward(self, input):
         torch._assert(
             input.dim() == 3 and input.shape[1] == self.pos_embedding.shape[1],
             f"Expected (batch_size, {self.pos_embedding.shape[1]}, hidden_dim) got {input.shape}",
@@ -1029,7 +1012,7 @@ class TransformerEncoder(nn.Module):
         input = input + self.pos_embedding
         x = self.dropout(input)
         for layer in self.layers:
-             x = layer(x, src_key_padding_mask=src_key_padding_mask)
+             x = layer(x)
         return self.ln(x)
 
 
@@ -1052,13 +1035,11 @@ class CMEncoderBlock(nn.Module):
         self.ln_2 = nn.LayerNorm(hidden_dim)
         self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
 
-    def forward(self, input, clue,
-                input_key_padding_mask = None,
-                clue_key_padding_mask = None):
+    def forward(self, input, clue):
         q = self.ln_q(clue)
         kv = self.ln_kv(input)
         attn_output, _ = self.cross_attention(
-            query=q, key=kv, value=kv, key_padding_mask=input_key_padding_mask, need_weights=False
+            query=q, key=kv, value=kv, need_weights=False
         )
         attn_output_dropout = self.dropout(attn_output)
         x = input + attn_output_dropout
@@ -1088,13 +1069,11 @@ class CMTransformerEncoder(nn.Module):
         self.layers = nn.ModuleList(layers.values())
         self.ln = nn.LayerNorm(hidden_dim)
 
-    def forward(self, input, clue,
-                input_key_padding_mask = None,
-                clue_key_padding_mask = None):
+    def forward(self, input, clue):
         x = self.dropout(input)
         z = self.dropout(clue)
         for layer in self.layers:
-             x = layer(x, z, input_key_padding_mask, clue_key_padding_mask)
+             x = layer(x, z)
         return self.ln(x)
 
 
@@ -1141,6 +1120,7 @@ class EpochEncoder(nn.Module):
             Transpose(1, 2),
         )
 
+        self.out_dim = dims[-1]
         self.avg = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, x):
@@ -1159,8 +1139,7 @@ class CareSleepNet(nn.Module):
         n_outputs = 5,
         filter_size = None,
         norm = "BatchNorm",
-        transformer_hidden_dim = 128,
-        transformer_mlp_dim = 128,
+        transformer_mlp_dim = 512,
         transformer_heads = 8,
         transformer_layers = 1,
     ):
@@ -1169,7 +1148,6 @@ class CareSleepNet(nn.Module):
             raise ValueError("n_chans must be even for EEG/EOG split.")
         self.n_chans = n_chans
         self.n_windows = n_windows
-        self.epoch_feature_dim = 128
 
         self.epoch_encoder_eeg = EpochEncoder(
             n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
@@ -1177,6 +1155,8 @@ class CareSleepNet(nn.Module):
         self.epoch_encoder_eog = EpochEncoder(
             n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
         )
+
+        self.epoch_feature_dim = self.epoch_encoder_eeg.out_dim
 
         self.eog2eeg_encoder = CMTransformerEncoder(
             num_layers=transformer_layers, num_heads=transformer_heads,
