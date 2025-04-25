@@ -905,7 +905,7 @@ class MSDconv(nn.Module):
         return out
 
 
-class SimplifiedUniEncoder(nn.Module):
+class UniEncoder(nn.Module):
     def __init__(
         self,
         hidden_size = 512,
@@ -1063,9 +1063,13 @@ class CMTransformerEncoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
         layers = OrderedDict()
         for i in range(num_layers):
-             layers[f"cm_encoder_layer_{i}"] = CMEncoderBlock(
-                 num_heads, hidden_dim, mlp_dim, dropout, attention_dropout
-             )
+            layers[f"cm_encoder_layer_{i}"] = CMEncoderBlock(
+                num_heads=num_heads,
+                hidden_dim=hidden_dim,
+                mlp_dim=mlp_dim,
+                dropout=dropout,
+                attention_dropout=attention_dropout,
+            )
         self.layers = nn.ModuleList(layers.values())
         self.ln = nn.LayerNorm(hidden_dim)
 
@@ -1078,17 +1082,33 @@ class CMTransformerEncoder(nn.Module):
 
 
 class EpochEncoder(nn.Module):
-    def __init__(self, in_plane, n_windows=None, norm="BatchNorm", filter_size=None):
+    def __init__(
+            self,
+            in_plane,
+            num_attention_heads=8,
+            n_windows=None,
+            norm="BatchNorm",
+            filter_size=None
+    ):
         super().__init__()
-        dims = [in_plane, 64, 128, 256, 512]
+        # dims = [in_plane, 64, 128, 256, 512]
+        dims = [in_plane, 16, 32, 64, 128]
         strides = [12, 1, 1, 1]
         kernels = [49, 9, 9, 9]
         paddings = [24, 4, 4, 4]
+        # expansion_factor = 4
+        expansion_factor = 2
 
         def create_msdconv(in_p, out_p, k, s, p, g):
             return MSDconv(
-                in_p, out_p, kernel_size=k, stride=s, padding=p, groups=g,
-                norm=norm, n_windows=n_windows, filter_size=filter_size
+                in_p, out_p,
+                kernel_size=k,
+                stride=s,
+                padding=p,
+                groups=g,
+                norm=norm,
+                n_windows=n_windows,
+                filter_size=filter_size
             )
 
         self.encoder = nn.Sequential(
@@ -1098,24 +1118,33 @@ class EpochEncoder(nn.Module):
             create_msdconv(dims[1], dims[2], kernels[1], strides[1], paddings[1], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
             Transpose(1, 2),
-            SimplifiedUniEncoder(
-                hidden_size=dims[2], num_hidden_layers=1, intermediate_size=dims[2]*4, num_attention_heads=8
+            UniEncoder(
+                hidden_size=dims[2],
+                num_hidden_layers=1,
+                intermediate_size=dims[2]*expansion_factor,
+                num_attention_heads=num_attention_heads
             ),
             Transpose(1, 2),
 
             create_msdconv(dims[2], dims[3], kernels[2], strides[1], paddings[2], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
             Transpose(1, 2),
-            SimplifiedUniEncoder(
-                hidden_size=dims[3], num_hidden_layers=1, intermediate_size=dims[3]*4, num_attention_heads=8
+            UniEncoder(
+                hidden_size=dims[3],
+                num_hidden_layers=1,
+                intermediate_size=dims[3]*expansion_factor,
+                num_attention_heads=num_attention_heads
             ),
             Transpose(1, 2),
 
             create_msdconv(dims[3], dims[4], kernels[3], strides[1], paddings[3], 1),
             nn.MaxPool1d(kernel_size=2, stride=2, padding=0),
             Transpose(1, 2),
-            SimplifiedUniEncoder(
-                hidden_size=dims[4], num_hidden_layers=1, intermediate_size=dims[4]*4, num_attention_heads=8
+            UniEncoder(
+                hidden_size=dims[4],
+                num_hidden_layers=1,
+                intermediate_size=dims[4]*expansion_factor,
+                num_attention_heads=num_attention_heads
             ),
             Transpose(1, 2),
         )
@@ -1140,7 +1169,8 @@ class CareSleepNet(nn.Module):
         filter_size = None,
         norm = "BatchNorm",
         transformer_mlp_dim = 512,
-        transformer_heads = 8,
+        # transformer_heads = 8,
+        transformer_heads = 4,
         transformer_layers = 1,
     ):
         super().__init__()
@@ -1150,29 +1180,44 @@ class CareSleepNet(nn.Module):
         self.n_windows = n_windows
 
         self.epoch_encoder_eeg = EpochEncoder(
-            n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
+            n_chans // 2, norm=norm,
+            filter_size=filter_size,
+            n_windows=n_windows,
+            num_attention_heads=transformer_heads
         )
         self.epoch_encoder_eog = EpochEncoder(
-            n_chans // 2, norm=norm, filter_size=filter_size, n_windows=n_windows
+            n_chans // 2, norm=norm,
+            filter_size=filter_size,
+            n_windows=n_windows,
+            num_attention_heads=transformer_heads
         )
 
         self.epoch_feature_dim = self.epoch_encoder_eeg.out_dim
 
         self.eog2eeg_encoder = CMTransformerEncoder(
-            num_layers=transformer_layers, num_heads=transformer_heads,
-            hidden_dim=self.epoch_feature_dim, mlp_dim=transformer_mlp_dim,
+            num_layers=transformer_layers,
+            num_heads=transformer_heads,
+            hidden_dim=self.epoch_feature_dim,
+            mlp_dim=transformer_mlp_dim,
             dropout=dropout, attention_dropout=dropout,
         )
         self.eeg2eog_encoder = CMTransformerEncoder(
-            num_layers=transformer_layers, num_heads=transformer_heads,
-            hidden_dim=self.epoch_feature_dim, mlp_dim=transformer_mlp_dim,
-            dropout=dropout, attention_dropout=dropout,
+            num_layers=transformer_layers,
+            num_heads=transformer_heads,
+            hidden_dim=self.epoch_feature_dim,
+            mlp_dim=transformer_mlp_dim,
+            dropout=dropout,
+            attention_dropout=dropout,
         )
 
         self.sequence_encoder = TransformerEncoder(
-            seq_length=n_windows, num_layers=transformer_layers, num_heads=transformer_heads,
-            hidden_dim=self.epoch_feature_dim, mlp_dim=transformer_mlp_dim,
-            dropout=dropout, attention_dropout=dropout,
+            seq_length=n_windows,
+            num_layers=transformer_layers,
+            num_heads=transformer_heads,
+            hidden_dim=self.epoch_feature_dim,
+            mlp_dim=transformer_mlp_dim,
+            dropout=dropout,
+            attention_dropout=dropout,
         )
 
         self.classifier = nn.Linear(self.epoch_feature_dim, n_outputs)
