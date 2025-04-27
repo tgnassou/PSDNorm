@@ -46,6 +46,7 @@ class CNNTransformer(nn.Module):
 
         self.pool = nn.AdaptiveAvgPool1d(n_epochs)
 
+        self.pos_emb = nn.Parameter(torch.randn(1, n_epochs, d_model))
         enc_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
@@ -65,7 +66,10 @@ class CNNTransformer(nn.Module):
 
         x = self.cnn(x)
         x = self.pool(x)
-        x = self.transformer(x.transpose(1, 2)).transpose(1, 2)
+        x = x.transpose(1, 2)
+        x = x + self.pos_emb
+        x = self.transformer(x)
+        x = x.transpose(1, 2)
         x = self.classifier(x)
 
         return x
