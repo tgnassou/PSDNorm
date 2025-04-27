@@ -266,6 +266,7 @@ elif model_name == "CNNTransformer":
         n_channels=in_chans,
         n_classes=n_classes,
         transformer_layers=2,
+        filter_size=filter_size,
         nhead=8,
         d_model=1024,
         dropout=0.1,

@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from temporal_norm.utils._psdnorm import PSDNorm
 
 
 class CNNTransformer(nn.Module):
@@ -10,6 +11,7 @@ class CNNTransformer(nn.Module):
         sfreq=100,
         n_epochs=35,
         transformer_layers=4,
+        filter_size=15,
         nhead=8,
         d_model=1024,
         dropout=0.1,
@@ -30,7 +32,22 @@ class CNNTransformer(nn.Module):
         ]
 
         layers, in_c = [], n_channels
-        for out_c, k, s in cnn_plan:
+        for i, (out_c, k, s) in enumerate(cnn_plan):
+            if filter_size is None:
+                norm = nn.BatchNorm1d(out_c)
+            else:
+                if i != 0 and s > 1:
+                    filter_size = filter_size // s
+                if filter_size % 2 == 0:
+                    filter_size += 1
+                if filter_size >= 3:
+                    norm = PSDNorm(
+                        filter_size=filter_size,
+                        n_channels=out_c,
+                    )
+                else:
+                    norm = nn.BatchNorm1d(out_c)
+
             layers += [
                 nn.Conv1d(
                     in_c, out_c,
@@ -38,7 +55,7 @@ class CNNTransformer(nn.Module):
                     stride=s,
                     padding=k // 2
                 ),
-                nn.BatchNorm1d(out_c),
+                norm,
                 nn.ELU(),
             ]
             in_c = out_c
