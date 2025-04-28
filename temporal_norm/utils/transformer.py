@@ -40,7 +40,8 @@ class CNNTransformer(nn.Module):
                     filter_size = filter_size // s
                 if filter_size % 2 == 0:
                     filter_size += 1
-                if filter_size >= 3:
+
+                if i in [0, 2]:
                     norm = PSDNorm(
                         filter_size=filter_size,
                         n_channels=out_c,
@@ -55,8 +56,8 @@ class CNNTransformer(nn.Module):
                     stride=s,
                     padding=k // 2
                 ),
-                norm,
                 nn.ELU(),
+                norm,
             ]
             in_c = out_c
         self.cnn = nn.Sequential(*layers)
