@@ -1,142 +1,112 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from sklearn.metrics import f1_score
-from statannotations.Annotator import Annotator
 import re
+from pathlib import Path
 
-# Root directory for results and outputs
-# root_path = Path(".")
-root_path = Path("15_epochs")
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from sklearn.metrics import f1_score
 
-# %% Load all result files
-fnames = list((root_path / "results_LODO" / "pickles").glob("results_*_LODO_*.pkl"))
+sns.set_theme(style="whitegrid", context="talk")
+FIG_DIR = Path("figures")
+FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Extract metadata from filenames
-pattern = re.compile(r"results_(?P<model>[^_]+)_(?P<norm>[^_]+)_(?P<percent>[^_]+)_LODO_(?P<dataset>[^.]+).pkl")
+root = Path(".")
 
-data = []
-for fname in fnames:
-    match = pattern.match(fname.name)
-    if match:
-        meta = match.groupdict()
-        df_part = pd.read_pickle(fname)
-        df_part["model"] = meta["model"]
-        df_part["norm"] = meta["norm"]
-        df_part["percent"] = meta["percent"]
-        df_part["dataset"] = meta["dataset"]
-        data.append(df_part)
+parts = []
+for f in (root / "results_LODO" / "pickles").glob("results_*_LODO_*.pkl"):
+    dfp = pd.read_pickle(f)
+    parts.append(dfp)
 
-# Concatenate all
-if not data:
+if not parts:
     raise RuntimeError("No result files matched the expected pattern.")
-df = pd.concat(data, axis=0)
-df["f1"] = df.apply(lambda x: f1_score(x.y_true, x.y_pred, average="weighted"), axis=1)
-# Ensure dataset order is consistent
-df["dataset"] = pd.Categorical(df["dataset"], categories=sorted(df["dataset"].unique()), ordered=True)
 
-# %% Plot + Tables per (model, percent)
-for (model_name, percent), df_group in df.groupby(["model", "percent"]):
-    # === BOXPLOT ===
-    fig, ax = plt.subplots(figsize=(9, 3))
+df = pd.concat(parts, ignore_index=True)
+
+df["f1"] = df.apply(lambda r: f1_score(r.y_true, r.y_pred, average="weighted"), axis=1)
+df["norm_layer"] = df.apply(
+    lambda r: "BatchNorm" if r["norm"] == "BatchNorm" else f"PSDNorm_{r['filter_size']}",
+    axis=1,
+)
+
+# dataset label for titles
+DATASET_LABEL = ", ".join(sorted(df["dataset"].unique()))
+
+# ── ordering: BatchNorm first in legend, USleep first on x-axis ────
+bn_first = ["BatchNorm"]
+psd_rest = sorted([n for n in df["norm_layer"].unique() if n != "BatchNorm"])
+HUE_ORDER = bn_first + psd_rest
+
+all_models = sorted(df["model_name"].unique())
+MODEL_ORDER = (
+    ["USleep"] + [m for m in all_models if m != "USleep"]
+    if "USleep" in all_models else all_models
+)
+
+# ─────────────────────────  PLOT 1  ────────────────────────────────
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.boxplot(
+    data=df,
+    x="model_name",
+    y="f1",
+    hue="norm_layer",
+    hue_order=HUE_ORDER,
+    order=MODEL_ORDER,
+    ax=ax,
+    showmeans=True,
+    flierprops=dict(marker=".", markersize=2),
+    linewidth=0.8,
+)
+ax.set_xlabel("Model")
+ax.set_ylabel("F1 score")
+ax.set_title(f"F1 score by model and normalisation layer — {DATASET_LABEL}")
+ax.grid(axis="y", alpha=0.4)
+sns.despine()
+ax.legend(title="Normalisation", bbox_to_anchor=(1.02, 1), loc="upper left")
+fig.tight_layout(rect=[0, 0, 0.85, 1])
+fig.savefig(FIG_DIR / "LODO_F1_model_vs_norm.png", bbox_inches="tight")
+plt.close(fig)
+
+# ─────────────────────────  PLOT 2  ────────────────────────────────
+#  ΔF1 = PSDNorm − BatchNorm
+df_bn = df[df["norm_layer"] == "BatchNorm"]
+
+deltas = []
+for (model, percent), sub in df.groupby(["model_name", "percentage"]):
+    for psd_var in psd_rest:                # only PSDNorm_* entries
+        psd = sub[sub["norm_layer"] == psd_var]
+        if psd.empty:
+            continue
+        merged = df_bn.merge(psd, on=["dataset", "subject"], suffixes=("_bn", "_psd"))
+        merged["delta"]   = merged["f1_psd"] - merged["f1_bn"]
+        merged["variant"] = psd_var
+        merged["model_name"]   = model
+        deltas.append(merged)
+
+if deltas:
+    ddf = pd.concat(deltas, ignore_index=True)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
     sns.boxplot(
-        data=df_group.query("dataset_type == 'target'"),
-        x="dataset",
-        y="f1",
-        hue="norm",
-        boxprops={"edgecolor": "none"},
-        linewidth=0.8,
+        data=ddf,
+        x="model_name",
+        y="delta",
+        hue="variant",
+        order=MODEL_ORDER,
+        hue_order=psd_rest,
+        ax=ax,
+        showmeans=True,
         flierprops=dict(marker=".", markersize=2),
-        palette={"BatchNorm": "cornflowerblue", "PSDNorm": "lightcoral"},
-        ax=ax
+        linewidth=0.8,
     )
+    ax.axhline(0, color="black", ls="--", lw=1)
+    ax.set_ylim(-0.2, 0.2)
+    ax.set_xlabel("Model")
+    ax.set_ylabel(r"$\Delta$ F1 (PSDNorm − BatchNorm)")
+    ax.set_title(f"PSDNorm gain over BatchNorm — {DATASET_LABEL}")
+    ax.grid(axis="y", alpha=0.4)
     sns.despine()
-    plt.grid(axis="y", alpha=0.6)
-
-    # Annotations
-    available_datasets = sorted(df_group["dataset"].unique())
-    available_norms = df_group["norm"].unique()
-    pairs = []
-    if "BatchNorm" in available_norms and "PSDNorm" in available_norms:
-        for d in available_datasets:
-            sub_df = df_group.query("dataset == @d")
-            if set(["BatchNorm", "PSDNorm"]).issubset(sub_df["norm"].unique()):
-                pairs.append(((d, "BatchNorm"), (d, "PSDNorm")))
-
-    if pairs:
-        annotator = Annotator(ax, pairs, data=df_group, x="dataset", y="f1", hue="norm")
-        annotator.configure(test="Wilcoxon", text_format="star", loc="inside", line_width=1)
-        annotator.apply_and_annotate()
-
-    plt.ylabel("F1 Score")
-    plt.xlabel("")
-    plt.xticks(rotation=45)
-    plt.title(f"Model: {model_name}, Percent: {percent}")
-    plt.tight_layout()
-
-    fig_path = root_path / "figures" / f"LODO_F1_{model_name}_{percent}.pdf"
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(fig_path, bbox_inches="tight")
+    # legend intentionally removed
+    ax.get_legend().remove()
+    fig.tight_layout(rect=[0, 0, 0.85, 1])
+    fig.savefig(FIG_DIR / "LODO_F1_delta_model_vs_norm.png", bbox_inches="tight")
     plt.close(fig)
-
-    # === DELTA BOXPLOT ===
-    df_bn = df_group[df_group.norm == "BatchNorm"]
-    df_psd = df_group[df_group.norm == "PSDNorm"]
-    df_merge = df_bn.merge(df_psd, on=["dataset", "subject"], suffixes=("_bn", "_psd"))
-    df_merge["delta"] = df_merge["f1_psd"] - df_merge["f1_bn"]
-
-    all_datasets = sorted(df_group["dataset"].unique())
-    df_merge["dataset"] = pd.Categorical(df_merge["dataset"], categories=all_datasets, ordered=True)
-
-    fig, ax = plt.subplots(figsize=(9, 3))
-    sns.boxplot(data=df_merge, x="dataset", y="delta", color="lightgray", fliersize=0, ax=ax)
-    # sns.stripplot(data=df_merge, x="dataset", y="delta", color="black", size=3, alpha=0.5, jitter=0.2, ax=ax)
-
-    for i, d in enumerate(all_datasets):
-        if i % 2 == 0:
-            ax.axvspan(i - 0.5, i + 0.5, color="lightgray", alpha=0.3, zorder=0)
-
-    plt.axhline(0, color="black", linestyle="--")
-    plt.ylim(-0.1, 0.1)
-    plt.xticks(rotation=45)
-    plt.ylabel(r"$\Delta$ F1 Score (PSDNorm - BatchNorm)")
-    plt.xlabel("")
-    plt.title(f"\u0394F1 per dataset: {model_name}, Percent: {percent}")
-    sns.despine()
-    plt.tight_layout()
-
-    delta_path = root_path / "figures" / f"LODO_F1_delta_box_{model_name}_{percent}.pdf"
-    delta_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(delta_path, bbox_inches="tight")
-    plt.close(fig)
-
-    # === LATEX TABLE ===
-    df_tab = df_group.query("dataset_type == 'target'").copy()
-    df_tab = df_tab.groupby(["dataset", "norm", "subject"]).f1.mean().reset_index()
-    df_tab = df_tab.groupby(["dataset", "norm"])["f1"].agg(['mean', 'std']).reset_index()
-
-    df_tab["formatted"] = df_tab.apply(
-        lambda x: rf"{x['mean']:.2f} $\pm$ {x['std']:.2f}", axis=1
-    )
-
-    df_tab["bold"] = False
-    for dataset in df_tab["dataset"].unique():
-        df_sub = df_tab[df_tab["dataset"] == dataset]
-        if len(df_sub) >= 2:
-            best_idx = df_sub["mean"].idxmax()
-            df_tab.loc[best_idx, "bold"] = True
-
-    df_tab["mean_std"] = df_tab.apply(
-        lambda x: rf"\\textbf{{{x['formatted']}}}" if bool(x["bold"]) else x["formatted"], axis=1
-    )
-
-    df_tab["Score"] = "F1 Score"
-    df_tab = df_tab.pivot_table(index="dataset", columns=["Score", "norm"], values="mean_std", aggfunc="first").fillna("")
-
-    table_tex = df_tab.to_latex(escape=False, multicolumn_format="c", multirow=True)
-    table_path = root_path / "tables" / f"LODO_table_{model_name}_{percent}.tex"
-    table_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(table_path, "w") as f:
-        f.write(table_tex)
