@@ -20,6 +20,7 @@ from torch.amp import autocast
 
 from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
 from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet, CareSleepNet
+from temporal_norm.utils.transformer import CNNTransformer
 from temporal_norm.utils import get_center_label
 
 import argparse
@@ -225,6 +226,9 @@ print(f"Number of target batches: {len(dataloader_target)}")
 print()
 
 # %%
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 if model_name == "USleep":
     model = USleepNorm(
         n_chans=in_chans,
@@ -257,7 +261,20 @@ elif model_name == "DeepSleepNet":
         norm=norm,
     )
 
-num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+elif model_name == "CNNTransformer":
+    model = CNNTransformer(
+        n_channels=in_chans,
+        n_classes=n_classes,
+        transformer_layers=2,
+        filter_size=filter_size,
+        nhead=8,
+        d_model=1024,
+        dropout=0.1,
+    )
+    print(f"CNNTransformer: CNN trainable params: {count_params(model.cnn):,}")
+    print(f"CNNTransformer: Transformer trainable params: {count_params(model.transformer):,}")
+
+num_trainable_params = count_params(model)
 print(f"Trainable parameters: {num_trainable_params:,}")
 
 model.to(device)
