@@ -8,10 +8,11 @@
 #SBATCH -C v100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=5
 #SBATCH --hint=nomultithread
+#SBATCH --qos=qos_gpu-t3
 #SBATCH --time=20:00:00
-#SBATCH --array=0-200
+#SBATCH --array=0-399
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -22,7 +23,7 @@ cd $WORK/PSDNorm/temporal_norm
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
 FILTER_SIZE=(None 1 9 17 33)
 MODEL_NAMES=("USleep" "CNNTransformer")
-PERCENT=(0.01 0.01)
+PERCENT=(0.01 0.05 0.1 0.25)
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}

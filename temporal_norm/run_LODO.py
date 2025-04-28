@@ -21,6 +21,7 @@ from torch.amp import autocast
 from temporal_norm.utils import get_subject_ids, get_dataloader
 from temporal_norm.utils.unet import USleep
 from temporal_norm.utils.transformer import CNNTransformer
+from temporal_norm.utils.caresleepnet import CareSleepNet
 from temporal_norm.utils import get_center_label
 
 import argparse
@@ -260,6 +261,14 @@ if model_name == "USleep":
         with_skip_connection=True,
         n_outputs=n_classes,
         n_times=input_size_samples,
+        filter_size=filter_size,
+    )
+
+elif model_name == "CareSleepNet":
+    model = CareSleepNet(
+        n_chans=in_chans,
+        n_outputs=n_classes,
+        n_windows=n_windows,
         filter_size=filter_size,
     )
 
