@@ -26,7 +26,6 @@ import argparse
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
 
 # %%
 parser = argparse.ArgumentParser()
@@ -43,8 +42,13 @@ parser.add_argument("--print_tqdm", action="store_true")
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--lr", type=float, default=1e-3)
 parser.add_argument("--compile", action="store_true")
+parser.add_argument("--torchinductor", action="store_true")
+
 
 args = parser.parse_args()
+
+if args.torchinductor:
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
 
 percentage = args.percent
 norm = args.norm
@@ -111,6 +115,14 @@ if norm == "BatchNorm":
 
 elif norm == "PSDNorm":
     depth_norm = 3
+
+elif norm == "LayerNorm":
+    depth_norm = 3
+    filter_size = None
+
+elif norm == "InstanceNorm":
+    depth_norm = 3
+    filter_size = None
 
 print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
 
