@@ -279,7 +279,7 @@ elif model_name == "CNNTransformer":
         transformer_layers=2,
         filter_size=filter_size,
         nhead=8,
-        d_model=1024,
+        d_model=768,
         dropout=0.1,
     )
     print(f"CNNTransformer: CNN trainable params: {count_params(model.cnn):,}")
