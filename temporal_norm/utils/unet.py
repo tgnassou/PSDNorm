@@ -247,7 +247,7 @@ class USleep(EEGModuleMixin, nn.Module):
             if filter_size is None:
                 norm = nn.BatchNorm1d(channels[idx + 1])
             else:
-                if idx in [0, 2]:
+                if idx in [0, 1, 2]:
                     if filter_size == 1:
                         norm = nn.InstanceNorm1d(channels[idx + 1])
                     else:
