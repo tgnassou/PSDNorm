@@ -12,7 +12,7 @@
 #SBATCH --hint=nomultithread
 #SBATCH --qos=qos_gpu-t3
 #SBATCH --time=02:00:00
-#SBATCH --array=0-7
+#SBATCH --array=0-15
 
 module purge
 module load pytorch-gpu/py3/2.6.0
