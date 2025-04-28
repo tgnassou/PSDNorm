@@ -36,16 +36,19 @@ class CNNTransformer(nn.Module):
             if filter_size is None:
                 norm = nn.BatchNorm1d(out_c)
             else:
-                if i != 0 and s > 1:
-                    filter_size = filter_size // s
-                if filter_size % 2 == 0:
-                    filter_size += 1
-
                 if i in [0, 2]:
-                    norm = PSDNorm(
-                        filter_size=filter_size,
-                        n_channels=out_c,
-                    )
+                    if filter_size == 1:
+                        norm = nn.InstanceNorm1d(out_c)
+                    else:
+                        if i != 0 and s > 1:
+                            filter_size = filter_size // s
+                        if filter_size % 2 == 0:
+                            filter_size += 1
+
+                        norm = PSDNorm(
+                            filter_size=filter_size,
+                            n_channels=out_c,
+                        )
                 else:
                     norm = nn.BatchNorm1d(out_c)
 

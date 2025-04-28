@@ -18,8 +18,8 @@ from torch import nn
 from torch.amp import autocast
 
 
-from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
-from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet, CareSleepNet
+from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils.unet import USleep
 from temporal_norm.utils.transformer import CNNTransformer
 from temporal_norm.utils import get_center_label
 
@@ -29,11 +29,20 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # %%
+def int_or_none(value):
+    if value.lower() == 'none':
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Expected an integer or 'None', got '{value}'")
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
-parser.add_argument("--norm", type=str, default="PSDNorm")
-parser.add_argument("--filter_size", type=int, default=9)
+# parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument('--filter_size', type=int_or_none, help="An int or 'None'", default=None)
 parser.add_argument("--batch_size", type=int, default=64)
 parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
@@ -44,15 +53,17 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--lr", type=float, default=1e-3)
 parser.add_argument("--compile", action="store_true")
 parser.add_argument("--torchinductor", action="store_true")
+parser.add_argument("--results_path", type=str, default="results_LODO")
 
 
 args = parser.parse_args()
 
 if args.torchinductor:
-    os.environ["TORCHINDUCTOR_CACHE_DIR"] = "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = (
+        "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
+    )
 
 percentage = args.percent
-norm = args.norm
 filter_size = args.filter_size
 batch_size = args.batch_size
 dataset_target = args.dataset
@@ -81,7 +92,10 @@ dataset_names = [
 ]
 print("loading metadata ...")
 print("")
-metadata = pd.read_parquet("metadata/metadata_sleep.parquet", columns=["dataset_name", "subject_id", "session", "y", "sample"])
+metadata = pd.read_parquet(
+    "metadata/metadata_sleep.parquet",
+    columns=["dataset_name", "subject_id", "session", "y", "sample"],
+)
 
 # %%
 
@@ -110,22 +124,16 @@ in_chans = 2
 n_classes = 5
 input_size_samples = 3000
 
-if norm == "BatchNorm":
-    filter_size = None
-    depth_norm = None
+if filter_size is None:
+    norm = "BatchNorm"
 
-elif norm == "PSDNorm":
-    depth_norm = 3
+elif filter_size == 1:
+    norm = "InstanceNorm"
 
-elif norm == "LayerNorm":
-    depth_norm = 3
-    filter_size = None
-
-elif norm == "InstanceNorm":
-    depth_norm = 3
-    filter_size = None
-
-print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
+else:
+    norm = "PSDNorm"
+print(f"Model: {model_name}")
+print(f"Normalization Layer: {norm}")
 
 # training
 n_epochs = 15
@@ -238,11 +246,14 @@ print(f"Number of target batches: {len(dataloader_target)}")
 print()
 
 # %%
+
+
 def count_params(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
 if model_name == "USleep":
-    model = USleepNorm(
+    model = USleep(
         n_chans=in_chans,
         sfreq=100,
         depth=12,
@@ -250,27 +261,6 @@ if model_name == "USleep":
         n_outputs=n_classes,
         n_times=input_size_samples,
         filter_size=filter_size,
-        depth_norm=depth_norm,
-        norm=norm,
-    )
-
-elif model_name == "CareSleepNet":
-    model = CareSleepNet(
-        n_chans=in_chans,
-        n_outputs=n_classes,
-        n_windows=n_windows,
-        filter_size=filter_size,
-        norm=norm,
-    )
-
-elif model_name == "DeepSleepNet":
-    model = DeepSleepNet(
-        n_chans=in_chans,
-        sfreq=100,
-        n_outputs=n_classes,
-        n_times=input_size_samples,
-        filter_size=filter_size,
-        norm=norm,
     )
 
 elif model_name == "CNNTransformer":
@@ -284,7 +274,9 @@ elif model_name == "CNNTransformer":
         dropout=0.1,
     )
     print(f"CNNTransformer: CNN trainable params: {count_params(model.cnn):,}")
-    print(f"CNNTransformer: Transformer trainable params: {count_params(model.transformer):,}")
+    print(
+        f"CNNTransformer: Transformer trainable params: {count_params(model.transformer):,}"
+    )
 
 num_trainable_params = count_params(model)
 print(f"Trainable parameters: {num_trainable_params:,}")
@@ -420,7 +412,7 @@ for epoch in range(n_epochs):
             print("Early stopping")
             break
 
-folder = Path("results_LODO")
+folder = Path(args.results_path)
 folder.mkdir(parents=True, exist_ok=True)
 folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
@@ -497,9 +489,7 @@ for subj_id, data in results_by_subject.items():
             "dataset": dataset_target,
             "dataset_type": "target",
             "norm": norm,
-            "filter_size_input": None,
             "filter_size": filter_size,
-            "depth_norm": depth_norm,
             "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,
