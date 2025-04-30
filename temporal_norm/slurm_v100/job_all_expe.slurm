@@ -8,11 +8,11 @@
 #SBATCH -C v100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=10
 #SBATCH --hint=nomultithread
 #SBATCH --qos=qos_gpu-t3
 #SBATCH --time=20:00:00
-#SBATCH --array=0-399
+#SBATCH --array=0-29
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -21,9 +21,9 @@ cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
-FILTER_SIZE=("None" 1 9 17 33)
-MODEL_NAMES=("USleep" "CNNTransformer")
-PERCENT=(0.01 0.05 0.1 0.25)
+FILTER_SIZE=(9 17 33)
+MODEL_NAMES=("USleep")
+PERCENT=(1)
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}
@@ -56,8 +56,10 @@ srun python run_LODO.py \
     --model_name "$MODEL_NAME" \
     --filter_size "$FILTER" \
     --percent "$PERCENT" \
-    --num_workers 20 \
+    --num_workers 10 \
     $( [ "$MODEL_NAME" = "CNNTransformer" ] && echo "--lr 1e-4" ) \
     $( [ "$MODEL_NAME" = "USleep" ] && echo "--lr 1e-3" ) \
     --batch_size 64 \
-    --compile
+    --compile \
+    --affine
+
