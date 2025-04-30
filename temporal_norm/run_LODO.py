@@ -3,6 +3,7 @@ import time
 from collections import defaultdict
 import copy
 from pathlib import Path
+import os
 from tqdm import tqdm
 
 import numpy as np
@@ -16,37 +17,64 @@ import torch
 from torch import nn
 from torch.amp import autocast
 
-from temporal_norm.utils import get_subject_ids, get_dataloader, get_probs
-from temporal_norm.utils.architecture import USleepNorm, DeepSleepNet
+
+from temporal_norm.utils import get_subject_ids, get_dataloader
+from temporal_norm.utils.unet import USleep
+from temporal_norm.utils.transformer import CNNTransformer
+from temporal_norm.utils.caresleepnet import CareSleepNet
 from temporal_norm.utils import get_center_label
 
 import argparse
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
 # %%
+def int_or_none(value):
+    if value.lower() == 'none':
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Expected an integer or 'None', got '{value}'")
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
-parser.add_argument("--norm", type=str, default="PSDNorm")
-parser.add_argument("--filter_size", type=int, default=9)
+# parser.add_argument("--norm", type=str, default="PSDNorm")
+parser.add_argument('--filter_size', type=int_or_none, help="An int or 'None'", default=None)
+parser.add_argument("--batch_size", type=int, default=64)
 parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
 parser.add_argument("--use_amp", action="store_true")
-parser.add_argument("--num_workers", type=int, default=40)
+parser.add_argument("--num_workers", type=int, default=5)
 parser.add_argument("--print_tqdm", action="store_true")
+parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--lr", type=float, default=1e-3)
+parser.add_argument("--compile", action="store_true")
+parser.add_argument("--torchinductor", action="store_true")
+parser.add_argument("--results_path", type=str, default="results_LODO")
+
 
 args = parser.parse_args()
 
+if args.torchinductor:
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = (
+        "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
+    )
+
 percentage = args.percent
-norm = args.norm
 filter_size = args.filter_size
+batch_size = args.batch_size
 dataset_target = args.dataset
 model_name = args.model_name
 balanced = args.balanced
 use_amp = args.use_amp
 num_workers = args.num_workers
 print_tqdm = args.print_tqdm
-
+seed = args.seed
+lr = args.lr
 if use_amp:
     print("BE CAREFUL! AMP is enabled.")
 
@@ -63,15 +91,20 @@ dataset_names = [
     "SOF",
     "MROS",
 ]
-metadata = pd.read_parquet("metadata/metadata_sleep.parquet")
+print("loading metadata ...")
+print("")
+metadata = pd.read_parquet(
+    "metadata/metadata_sleep.parquet",
+    columns=["dataset_name", "subject_id", "session", "y", "sample"],
+)
 
 # %%
 
 print(f"Percentage: {percentage}")
 modules = []
 
+print(f"seed: {seed}")
 # HPs for the experiment
-seed = 42
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 rng = check_random_state(seed)
@@ -83,7 +116,6 @@ n_windows_stride_inference = 1 if model_name == "DeepSleepNet" else n_windows_st
 n_sequences_balanced = int(len(metadata) / n_windows_stride)
 if balanced:
     n_windows_stride = 1
-batch_size = 64
 batch_size_inference = batch_size
 pin_memory = True
 persistent_workers = False
@@ -92,21 +124,24 @@ persistent_workers = False
 in_chans = 2
 n_classes = 5
 input_size_samples = 3000
-lr = 1e-3
 
-if norm == "BatchNorm":
-    filter_size = None
-    depth_norm = None
+if filter_size is None:
+    norm = "BatchNorm"
 
-elif norm == "PSDNorm":
-    depth_norm = 3
+elif filter_size == 1:
+    norm = "InstanceNorm"
 
-print(f"Filter size: {filter_size}, Depth Norm: {depth_norm}, Norm: {norm}")
+else:
+    norm = "PSDNorm"
+print(f"Model: {model_name}")
+print(f"Normalization Layer: {norm}")
 
 # training
-n_epochs = 15
+n_epochs = 30
 patience = 3
-assert (n_windows - n_windows_stride) % 2 == 0, "n_windows - n_windows_stride must be even"
+assert (
+    n_windows - n_windows_stride
+) % 2 == 0, "n_windows - n_windows_stride must be even"
 first_window_idx = (n_windows - n_windows_stride) // 2
 last_window_idx = first_window_idx + n_windows_stride
 
@@ -142,7 +177,7 @@ for dataset_name in dataset_sources:
 print(f"Target dataset: {dataset_target}")
 
 # %%
-probs = get_probs(metadata, dataset_sources, alpha=0.5)
+# probs = get_probs(metadata, dataset_sources, alpha=0.5)
 
 # Source train dataloader
 dataloader_train = get_dataloader(
@@ -197,8 +232,12 @@ dataloader_target = get_dataloader(
 
 print()
 print(f"Number of source subjects: {n_subject_tot}")
-print(f"Number of training subjects: {sum([len(v) for v in subject_ids_train.values()])}")
-print(f"Number of validation subjects: {sum([len(v) for v in subject_ids_val.values()])}")
+print(
+    f"Number of training subjects: {sum([len(v) for v in subject_ids_train.values()])}"
+)
+print(
+    f"Number of validation subjects: {sum([len(v) for v in subject_ids_val.values()])}"
+)
 print(f"Number of target subjects: {len(subject_id_target)}")
 print()
 
@@ -208,8 +247,14 @@ print(f"Number of target batches: {len(dataloader_target)}")
 print()
 
 # %%
+
+
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 if model_name == "USleep":
-    model = USleepNorm(
+    model = USleep(
         n_chans=in_chans,
         sfreq=100,
         depth=12,
@@ -217,26 +262,40 @@ if model_name == "USleep":
         n_outputs=n_classes,
         n_times=input_size_samples,
         filter_size=filter_size,
-        depth_norm=depth_norm,
-        norm=norm,
     )
 
-elif model_name == "DeepSleepNet":
-    model = DeepSleepNet(
+elif model_name == "CareSleepNet":
+    model = CareSleepNet(
         n_chans=in_chans,
-        sfreq=100,
         n_outputs=n_classes,
-        n_times=input_size_samples,
+        n_windows=n_windows,
         filter_size=filter_size,
-        norm=norm,
     )
-num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+elif model_name == "CNNTransformer":
+    model = CNNTransformer(
+        n_channels=in_chans,
+        n_classes=n_classes,
+        transformer_layers=2,
+        filter_size=filter_size,
+        nhead=8,
+        d_model=768,
+        dropout=0.1,
+    )
+    print(f"CNNTransformer: CNN trainable params: {count_params(model.cnn):,}")
+    print(
+        f"CNNTransformer: Transformer trainable params: {count_params(model.transformer):,}"
+    )
+
+num_trainable_params = count_params(model)
 print(f"Trainable parameters: {num_trainable_params:,}")
 
 model.to(device)
 if use_amp:
     model = model.to(torch.bfloat16)
-model = torch.compile(model)
+if args.compile:
+    print("Compiling model with torch.compile")
+    model = torch.compile(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 history = []
@@ -245,8 +304,6 @@ print()
 print("Start training")
 min_val_loss = np.inf
 for epoch in range(n_epochs):
-    print()
-    print(f"Epoch: {epoch}")
     time_start = time.time()
     model.train()
     train_loss = np.zeros(len(dataloader_train))
@@ -283,21 +340,21 @@ for epoch in range(n_epochs):
     y_true_all = [y.cpu().numpy() for y in y_true_all]
     y_pred = np.concatenate(y_pred_all)
     y_true = np.concatenate(y_true_all)
-    if model_name == "USleep":
+    if model_name != "DeepSleepNet":
         y_pred = y_pred[:, first_window_idx:last_window_idx]
         y_true = y_true[:, first_window_idx:last_window_idx]
 
     perf = accuracy_score(y_true.flatten(), y_pred.flatten())
-    f1 = f1_score(
-        y_true.flatten(), y_pred.flatten(), average="weighted"
-        )
+    f1 = f1_score(y_true.flatten(), y_pred.flatten(), average="weighted")
 
     model.eval()
     with torch.no_grad():
         val_loss = np.zeros(len(dataloader_val))
         y_pred_all, y_true_all = list(), list()
         for i, (batch_X, batch_y, _, _) in enumerate(
-            tqdm(dataloader_val, desc="Validation", unit="batch", disable=not print_tqdm)
+            tqdm(
+                dataloader_val, desc="Validation", unit="batch", disable=not print_tqdm
+            )
         ):
             batch_X = batch_X.to(device, non_blocking=True)
             batch_y = batch_y.to(device, non_blocking=True)
@@ -316,16 +373,13 @@ for epoch in range(n_epochs):
 
         y_pred = np.concatenate(y_pred_all)
         y_true = np.concatenate(y_true_all)
-        if model_name == "USleep":
+        if model_name != "DeepSleepNet":
             y_pred = y_pred[:, first_window_idx:last_window_idx]
             y_true = y_true[:, first_window_idx:last_window_idx]
         perf_val = accuracy_score(y_true.flatten(), y_pred.flatten())
         std_val = np.std(perf_val)
-        f1_val = f1_score(
-            y_true.flatten(), y_pred.flatten(), average="weighted"
-        )
+        f1_val = f1_score(y_true.flatten(), y_pred.flatten(), average="weighted")
         std_f1_val = np.std(f1_val)
-
     time_end = time.time()
     history.append(
         {
@@ -345,7 +399,7 @@ for epoch in range(n_epochs):
         "Ep:",
         epoch,
         "Loss:",
-        round(np.mean(train_loss), 2),
+        round(np.mean(train_loss), 4),
         "Acc:",
         round(np.mean(perf), 2),
         "LossVal:",
@@ -367,24 +421,38 @@ for epoch in range(n_epochs):
             print("Early stopping")
             break
 
-folder = Path("results_LODO")
+folder = Path(args.results_path)
 folder.mkdir(parents=True, exist_ok=True)
 folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
-history_path = folder_history / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+history_path = (
+    folder_history
+    / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+)
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
 
 folder_model = folder / "models"
 folder_model.mkdir(parents=True, exist_ok=True)
-torch.save(best_model, folder_model / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(
+    best_model,
+    folder_model
+    / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt",
+)
 # save optimizer
-torch.save(optimizer.state_dict(), folder_model / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt")
+torch.save(
+    optimizer.state_dict(),
+    folder_model
+    / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt",
+)
 
 results = []
 folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
-results_path = folder_pickle / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+results_path = (
+    folder_pickle
+    / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+)
 
 # Accumulate predictions and targets on GPU per subject
 results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
@@ -392,7 +460,10 @@ results_by_subject = defaultdict(lambda: {"y_pred": [], "y_true": []})
 best_model.eval()
 with torch.no_grad():
     for batch_X, batch_y, batch_sub_id, batch_session_id in tqdm(
-        dataloader_target, desc="Inference on target", unit="batch", disable=not print_tqdm
+        dataloader_target,
+        desc="Inference on target",
+        unit="batch",
+        disable=not print_tqdm,
     ):
         batch_X = batch_X.to(device, non_blocking=True)
         batch_y = batch_y.to(device, non_blocking=True)
@@ -405,7 +476,7 @@ with torch.no_grad():
 
         # Gather predictions per subject
         for y_t, y_p, subj in zip(batch_y, preds, batch_sub_id):
-            if model_name == "USleep":
+            if model_name != "DeepSleepNet":
                 y_t = y_t[first_window_idx:last_window_idx]
                 y_p = y_p[first_window_idx:last_window_idx]
             results_by_subject[int(subj.item())]["y_true"].append(y_t)
@@ -413,7 +484,7 @@ with torch.no_grad():
 
 results = []
 for subj_id, data in results_by_subject.items():
-    if model_name == "USleep":
+    if model_name != "DeepSleepNet":
         y_pred_tensor = torch.cat(data["y_pred"])
         y_true_tensor = torch.cat(data["y_true"])
     else:
@@ -427,9 +498,7 @@ for subj_id, data in results_by_subject.items():
             "dataset": dataset_target,
             "dataset_type": "target",
             "norm": norm,
-            "filter_size_input": None,
             "filter_size": filter_size,
-            "depth_norm": depth_norm,
             "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,

@@ -132,7 +132,7 @@ class PSDNorm(nn.Module):
         # barycenter: (C, F,)
         # update running barycenter
         if self.training and self.track_running_stats and not self.bary_learning:
-            weights = torch.ones_like(psd) / psd.shape[-1]
+            weights = torch.ones_like(psd) / psd.shape[0]
             new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
             self._update_barycenter(new_barycenter.detach())
 
