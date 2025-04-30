@@ -44,6 +44,7 @@ parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 # parser.add_argument("--norm", type=str, default="PSDNorm")
 parser.add_argument('--filter_size', type=int_or_none, help="An int or 'None'", default=None)
+parser.add_argument('--affine', action='store_true')
 parser.add_argument("--batch_size", type=int, default=64)
 parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
@@ -66,6 +67,7 @@ if args.torchinductor:
 
 percentage = args.percent
 filter_size = args.filter_size
+affine = args.affine
 batch_size = args.batch_size
 dataset_target = args.dataset
 model_name = args.model_name
@@ -262,6 +264,7 @@ if model_name == "USleep":
         n_outputs=n_classes,
         n_times=input_size_samples,
         filter_size=filter_size,
+        affine=affine,
     )
 
 elif model_name == "CareSleepNet":
@@ -278,6 +281,7 @@ elif model_name == "CNNTransformer":
         n_classes=n_classes,
         transformer_layers=2,
         filter_size=filter_size,
+        affine=affine,
         nhead=8,
         d_model=768,
         dropout=0.1,
@@ -499,6 +503,7 @@ for subj_id, data in results_by_subject.items():
             "dataset_type": "target",
             "norm": norm,
             "filter_size": filter_size,
+            "affine": affine,
             "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,

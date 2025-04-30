@@ -205,6 +205,8 @@ class USleep(EEGModuleMixin, nn.Module):
         chs_info=None,
         n_times=None,
         filter_size=None,
+        affine=False,
+        track_running_stats=True,
     ):
         super().__init__(
             n_outputs=n_outputs,
@@ -255,8 +257,10 @@ class USleep(EEGModuleMixin, nn.Module):
                             filter_size += 1
 
                         norm = PSDNorm(
-                            filter_size=filter_size,
+                            filter_size=filter_size // 2**idx if filter_size // 2**idx > 1 else 1,
                             n_channels=channels[idx + 1],
+                            affine=affine,
+                            track_running_stats=track_running_stats,
                         )
                 else:
                     norm = nn.BatchNorm1d(channels[idx + 1])
