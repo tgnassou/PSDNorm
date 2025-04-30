@@ -253,11 +253,14 @@ class USleep(EEGModuleMixin, nn.Module):
                     if filter_size == 1:
                         norm = nn.InstanceNorm1d(channels[idx + 1])
                     else:
-                        if filter_size % 2 == 0:
-                            filter_size += 1
+                        filter_size_ = filter_size // 2**idx
+                        if filter_size_ < 1:
+                            filter_size_ = 1
+                        if filter_size_ % 2 == 0:
+                            filter_size_ += 1
 
                         norm = PSDNorm(
-                            filter_size=filter_size // 2**idx if filter_size // 2**idx > 1 else 1,
+                            filter_size=filter_size_,
                             n_channels=channels[idx + 1],
                             affine=affine,
                             track_running_stats=track_running_stats,
