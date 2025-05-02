@@ -146,7 +146,7 @@ print(f"Model: {model_name}")
 print(f"Normalization Layer: {norm}")
 
 # training
-n_epochs = 30
+n_epochs = 15
 patience = 3
 assert (
     n_windows - n_windows_stride
