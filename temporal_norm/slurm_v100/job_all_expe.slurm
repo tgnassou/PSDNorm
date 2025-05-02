@@ -3,7 +3,7 @@
 #SBATCH --output=slurm_logs/lodo_norm_%A_%a.out
 #SBATCH --error=slurm_logs/lodo_norm_%A_%a.err
 
-#SBATCH -A chr@v100
+#SBATCH -A wbb@v100
 #SBATCH --ntasks=1
 #SBATCH -C v100
 #SBATCH --gres=gpu:1
@@ -12,7 +12,7 @@
 #SBATCH --hint=nomultithread
 #SBATCH --qos=qos_gpu-t3
 #SBATCH --time=20:00:00
-#SBATCH --array=0-19
+#SBATCH --array=0-29
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -23,7 +23,7 @@ cd $WORK/PSDNorm/temporal_norm
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
 FILTER_SIZE=(17)
 MODEL_NAMES=("USleep")
-LEARNS=("bias" "target+bias")
+LEARNS=("bias" "target+bias" "none")
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}
