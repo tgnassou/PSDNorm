@@ -31,20 +31,24 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # %%
 def int_or_none(value):
-    if value.lower() == 'none':
+    if value.lower() == "none":
         return None
     try:
         return int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"Expected an integer or 'None', got '{value}'")
+        raise argparse.ArgumentTypeError(
+            f"Expected an integer or 'None', got '{value}'"
+        )
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
-# parser.add_argument("--norm", type=str, default="PSDNorm")
-parser.add_argument('--filter_size', type=int_or_none, help="An int or 'None'", default=None)
-parser.add_argument('--affine', action='store_true')
+parser.add_argument(
+    "--filter_size", type=int_or_none, help="An int or 'None'", default=None
+)
+parser.add_argument("--bias_learnable", action="store_true")
+parser.add_argument("--target_learnable", action="store_true")
 parser.add_argument("--batch_size", type=int, default=64)
 parser.add_argument("--model_name", type=str, default="USleep")
 parser.add_argument("--balanced", action="store_true")
@@ -56,6 +60,7 @@ parser.add_argument("--lr", type=float, default=1e-3)
 parser.add_argument("--compile", action="store_true")
 parser.add_argument("--torchinductor", action="store_true")
 parser.add_argument("--results_path", type=str, default="results_LODO")
+parser.add_argument("--norm_apply_to", type=str, default="encoder")
 
 
 args = parser.parse_args()
@@ -67,7 +72,9 @@ if args.torchinductor:
 
 percentage = args.percent
 filter_size = args.filter_size
-affine = args.affine
+bias_learnable = args.bias_learnable
+target_learnable = args.target_learnable
+norm_apply_to = args.norm_apply_to
 batch_size = args.batch_size
 dataset_target = args.dataset
 model_name = args.model_name
@@ -264,7 +271,9 @@ if model_name == "USleep":
         n_outputs=n_classes,
         n_times=input_size_samples,
         filter_size=filter_size,
-        affine=affine,
+        bias_learnable=bias_learnable,
+        target_learnable=target_learnable,
+        norm_apply_to=norm_apply_to,
     )
 
 elif model_name == "CareSleepNet":
@@ -281,7 +290,6 @@ elif model_name == "CNNTransformer":
         n_classes=n_classes,
         transformer_layers=2,
         filter_size=filter_size,
-        affine=affine,
         nhead=8,
         d_model=768,
         dropout=0.1,
@@ -431,7 +439,7 @@ folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
 history_path = (
     folder_history
-    / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+    / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}.pkl"
 )
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
@@ -441,13 +449,13 @@ folder_model.mkdir(parents=True, exist_ok=True)
 torch.save(
     best_model,
     folder_model
-    / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt",
+    / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}.pt",
 )
 # save optimizer
 torch.save(
     optimizer.state_dict(),
     folder_model
-    / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pt",
+    / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}.pt",
 )
 
 results = []
@@ -455,7 +463,7 @@ folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
 results_path = (
     folder_pickle
-    / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}.pkl"
+    / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}.pkl"
 )
 
 # Accumulate predictions and targets on GPU per subject
@@ -503,7 +511,9 @@ for subj_id, data in results_by_subject.items():
             "dataset_type": "target",
             "norm": norm,
             "filter_size": filter_size,
-            "affine": affine,
+            "bias_learnable": bias_learnable,
+            "target_learnable": target_learnable,
+            "norm_apply_to": norm_apply_to,
             "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,

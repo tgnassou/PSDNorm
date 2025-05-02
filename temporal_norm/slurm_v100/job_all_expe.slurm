@@ -3,7 +3,7 @@
 #SBATCH --output=slurm_logs/lodo_norm_%A_%a.out
 #SBATCH --error=slurm_logs/lodo_norm_%A_%a.err
 
-#SBATCH -A wbb@v100
+#SBATCH -A chr@v100
 #SBATCH --ntasks=1
 #SBATCH -C v100
 #SBATCH --gres=gpu:1
@@ -12,7 +12,7 @@
 #SBATCH --hint=nomultithread
 #SBATCH --qos=qos_gpu-t3
 #SBATCH --time=20:00:00
-#SBATCH --array=0-29
+#SBATCH --array=0-19
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -21,16 +21,16 @@ cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
-FILTER_SIZE=(9 17 33)
+FILTER_SIZE=(17)
 MODEL_NAMES=("USleep")
-PERCENT=(1)
+LEARNS=("bias" "target+bias")
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}
 NUM_MODELS=${#MODEL_NAMES[@]}
-NUM_PERCENTS=${#PERCENT[@]}
+NUM_LEARN=${#LEARNS[@]}
 
-TOTAL_COMBINATIONS=$((NUM_DATASETS * NUM_FILTERS * NUM_MODELS * NUM_PERCENTS))
+TOTAL_COMBINATIONS=$((NUM_DATASETS * NUM_FILTERS * NUM_MODELS * NUM_LEARN))
 
 if [ "$SLURM_ARRAY_TASK_ID" -ge "$TOTAL_COMBINATIONS" ]; then
     echo "Invalid SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}, max allowed is $((TOTAL_COMBINATIONS - 1))"
@@ -41,25 +41,25 @@ fi
 DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
 FILTER_ID=$(( (SLURM_ARRAY_TASK_ID / NUM_DATASETS) % NUM_FILTERS ))
 MODEL_ID=$(( (SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_FILTERS)) % NUM_MODELS ))
-PERCENT_ID=$(( SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_FILTERS * NUM_MODELS) ))
+LEARN_ID=$(( SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_FILTERS * NUM_MODELS) ))
 
 DATASET="${DATASETS[$DATASET_ID]}"
 FILTER="${FILTER_SIZE[$FILTER_ID]}"
 MODEL_NAME="${MODEL_NAMES[$MODEL_ID]}"
-PERCENT="${PERCENT[$PERCENT_ID]}"
+LEARN="${LEARNS[$LEARN_ID]}"
 
-echo "Running: Dataset=$DATASET | Filter=$FILTER | Model=$MODEL_NAME | Percent=$PERCENT"
+echo "Running: Dataset=$DATASET | Filter=$FILTER | Model=$MODEL_NAME | Learn=$LEARN"
 
 # CODE EXECUTION
 srun python run_LODO.py \
     --dataset "$DATASET" \
     --model_name "$MODEL_NAME" \
     --filter_size "$FILTER" \
-    --percent "$PERCENT" \
+    --percent "1" \
     --num_workers 10 \
     $( [ "$MODEL_NAME" = "CNNTransformer" ] && echo "--lr 1e-4" ) \
     $( [ "$MODEL_NAME" = "USleep" ] && echo "--lr 1e-3" ) \
     --batch_size 64 \
     --compile \
-    --affine
-
+    $( [ "$LEARN" = "bias" ] && echo "--bias_learnable" ) \
+    $( [ "$LEARN" = "target+bias" ] && echo "--bias_learnable --target_learnable" )

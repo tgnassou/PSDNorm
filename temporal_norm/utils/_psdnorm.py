@@ -71,7 +71,9 @@ class PSDNorm(nn.Module):
         momentum=0.01,
         track_running_stats=True,
         reg=1e-7,
-        affine=False,
+        bias_learnable=False,
+        target_learnable=False,
+        target_init=None,
         center=True,
     ):
         # This layer is not always well compiled.
@@ -83,28 +85,38 @@ class PSDNorm(nn.Module):
         super(PSDNorm, self).__init__()
         self.filter_size = filter_size
         self.momentum = momentum
-        self.affine = affine
-        if affine:
-            self.register_parameter(
-                "target",
-                torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
-            )
+        self.bias_learnable = bias_learnable
+        self.target_learnable = target_learnable
+        if bias_learnable:
             self.register_parameter(
                 "bias",
                 torch.nn.Parameter(torch.zeros(n_channels))
             )
         else:
-            self.register_buffer(
-                "barycenter",
-                torch.empty(n_channels, filter_size // 2 + 1)
+            self.register_parameter(
+                "bias",
+                None
             )
+
+        if target_learnable:
+            if target_init is not None:
+                self.register_parameter(
+                    "target",
+                    torch.nn.Parameter(torch.log(target_init))
+                )
+            else:
+                self.register_parameter(
+                    "target",
+                    torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
+                )
+        else:
             self.register_parameter(
                 "target",
                 None
             )
-            self.register_parameter(
-                "bias",
-                None
+            self.register_buffer(
+                "barycenter",
+                torch.empty(n_channels, filter_size // 2 + 1)
             )
         self.first_iter = True
         self.track_running_stats = track_running_stats
@@ -112,16 +124,12 @@ class PSDNorm(nn.Module):
         self.center = center
 
     def _update_barycenter(self, barycenter):
-        if self.first_iter:
-            self.barycenter = barycenter
-            self.first_iter = False
-        else:
-            self.barycenter = (
-                (1 - self.momentum)**2 * self.barycenter
-                + self.momentum**2 * barycenter
-                + 2 * self.momentum * (1 - self.momentum) *
-                torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
-            )
+        self.barycenter = (
+            (1 - self.momentum)**2 * self.barycenter
+            + self.momentum**2 * barycenter
+            + 2 * self.momentum * (1 - self.momentum) *
+            torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
+        )
 
     def forward(self, x):
         if x.dim() == 4:
@@ -134,12 +142,16 @@ class PSDNorm(nn.Module):
 
         psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
 
-        if self.training and self.track_running_stats and not self.affine:
+        if self.training and self.track_running_stats and not self.target_learnable:
             weights = torch.ones_like(psd) / psd.shape[0]
-            new_barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
-            self._update_barycenter(new_barycenter.detach())
+            barycenter = torch.sum(weights * torch.sqrt(psd), axis=0) ** 2
+            if self.first_iter:
+                self.barycenter = barycenter.detach()
+                self.first_iter = False
+            else:
+                self._update_barycenter(barycenter.detach())
 
-        if self.affine:
+        if self.target_learnable:
             target = torch.exp(self.target)
         else:
             target = self.barycenter
@@ -158,4 +170,4 @@ class PSDNorm(nn.Module):
 
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
-        return x_filtered + self.bias.view(1, -1, 1) if self.affine else x_filtered
+        return x_filtered + self.bias.view(1, -1, 1) if self.bias_learnable else x_filtered

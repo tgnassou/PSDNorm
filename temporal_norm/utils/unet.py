@@ -76,6 +76,7 @@ class _DecoderBlock(nn.Module):
 
     def __init__(
         self,
+        norm,
         in_channels=2,
         out_channels=2,
         kernel_size=9,
@@ -115,7 +116,7 @@ class _DecoderBlock(nn.Module):
                 padding="same",
             ),
             activation(),
-            nn.BatchNorm1d(num_features=out_channels),
+            norm,
         )
 
     def forward(self, x, residual):
@@ -205,7 +206,9 @@ class USleep(EEGModuleMixin, nn.Module):
         chs_info=None,
         n_times=None,
         filter_size=None,
-        affine=False,
+        norm_apply_to="encoder",
+        bias_learnable=False,
+        target_learnable=False,
         track_running_stats=True,
     ):
         super().__init__(
@@ -243,10 +246,111 @@ class USleep(EEGModuleMixin, nn.Module):
             n_filters = int(n_filters * np.sqrt(2))
         self.channels = channels
 
+        target_init = [
+            torch.tensor(
+                [
+                    [
+                        1.0000e-07,
+                        1.5218e00,
+                        3.8543e-01,
+                        1.3336e-01,
+                        9.7329e-02,
+                        6.2896e-02,
+                        3.3644e-02,
+                        2.9016e-02,
+                        4.7016e-02,
+                    ],
+                    [
+                        1.0000e-07,
+                        5.5084e-01,
+                        2.1004e-01,
+                        6.0484e-02,
+                        2.5701e-02,
+                        2.5206e-02,
+                        1.3861e-02,
+                        9.3079e-03,
+                        1.3325e-02,
+                    ],
+                    [
+                        1.0000e-07,
+                        4.0258e-01,
+                        2.0834e-01,
+                        7.5002e-02,
+                        2.6815e-02,
+                        2.3768e-02,
+                        1.6284e-02,
+                        1.2785e-02,
+                        3.4157e-02,
+                    ],
+                    [
+                        1.0000e-07,
+                        9.9586e-01,
+                        4.8442e-01,
+                        1.7131e-01,
+                        7.0263e-02,
+                        3.5709e-02,
+                        2.0898e-02,
+                        1.7793e-02,
+                        2.6394e-02,
+                    ],
+                    [
+                        1.0000e-07,
+                        3.0178e-01,
+                        2.4154e-01,
+                        1.2182e-01,
+                        4.8453e-02,
+                        1.8119e-02,
+                        1.0477e-02,
+                        1.0457e-02,
+                        2.5501e-02,
+                    ],
+                    [
+                        1.0000e-07,
+                        1.4321e00,
+                        1.0159e00,
+                        2.8292e-01,
+                        9.7466e-02,
+                        5.5544e-02,
+                        2.8466e-02,
+                        2.2320e-02,
+                        3.2318e-02,
+                    ],
+                ]
+            ),
+            torch.tensor(
+                [
+                    [1.0000e-07, 1.0755e-01, 5.3018e-02, 1.4860e-02, 1.0115e-02],
+                    [1.0000e-07, 1.1965e-01, 5.1918e-02, 1.6391e-02, 1.3251e-02],
+                    [1.0000e-07, 1.7397e-01, 1.1142e-01, 1.8944e-02, 1.0277e-02],
+                    [1.0000e-07, 6.8926e-02, 3.0401e-02, 1.4521e-02, 8.9498e-03],
+                    [1.0000e-07, 9.7194e-02, 4.4463e-02, 2.3899e-02, 1.2920e-02],
+                    [1.0000e-07, 4.8570e-02, 4.9113e-02, 1.7233e-02, 8.2650e-03],
+                    [1.0000e-07, 1.3280e-01, 6.6853e-02, 2.6432e-02, 1.4009e-02],
+                    [1.0000e-07, 5.5601e-02, 6.0454e-02, 2.4330e-02, 7.9644e-03],
+                    [1.0000e-07, 8.1042e-02, 5.4672e-02, 1.8944e-02, 6.3596e-03],
+                ]
+            ),
+            torch.tensor(
+                [
+                    [1.0000e-07, 1.7779e-02, 8.1376e-03],
+                    [1.0000e-07, 2.6136e-02, 1.0732e-02],
+                    [1.0000e-07, 9.6504e-03, 6.2814e-03],
+                    [1.0000e-07, 1.6744e-02, 1.4272e-02],
+                    [1.0000e-07, 3.6129e-02, 4.3019e-02],
+                    [1.0000e-07, 1.4267e-02, 8.8366e-03],
+                    [1.0000e-07, 1.4415e-02, 5.5146e-03],
+                    [1.0000e-07, 2.2225e-02, 1.1866e-02],
+                    [1.0000e-07, 7.5579e-03, 8.9970e-03],
+                    [1.0000e-07, 2.5746e-02, 1.1362e-02],
+                    [1.0000e-07, 1.4739e-02, 1.9769e-02],
+                ]
+            ),
+        ]
+
         # Instantiate encoder
         encoder = list()
         for idx in range(depth):
-            if filter_size is None:
+            if filter_size is None or norm_apply_to == "decoder":
                 norm = nn.BatchNorm1d(channels[idx + 1])
             else:
                 if idx in [0, 1, 2]:
@@ -262,7 +366,9 @@ class USleep(EEGModuleMixin, nn.Module):
                         norm = PSDNorm(
                             filter_size=filter_size_,
                             n_channels=channels[idx + 1],
-                            affine=affine,
+                            bias_learnable=bias_learnable,
+                            target_learnable=target_learnable,
+                            target_init=target_init[idx],
                             track_running_stats=track_running_stats,
                         )
                 else:
@@ -295,6 +401,29 @@ class USleep(EEGModuleMixin, nn.Module):
         decoder = list()
         channels_reverse = channels[::-1]
         for idx in range(depth):
+            if filter_size is None or norm_apply_to == "encoder":
+                norm = nn.BatchNorm1d(channels_reverse[idx + 1])
+            else:
+                if idx in [9, 10, 11]:
+                    if filter_size == 1:
+                        norm = nn.InstanceNorm1d(channels_reverse[idx + 1])
+                    else:
+                        filter_size_ = filter_size // 2**(11 - idx)
+                        if filter_size_ < 1:
+                            filter_size_ = 1
+                        if filter_size_ % 2 == 0:
+                            filter_size_ += 1
+
+                        norm = PSDNorm(
+                            filter_size=filter_size_,
+                            n_channels=channels_reverse[idx + 1],
+                            bias_learnable=bias_learnable,
+                            target_learnable=target_learnable,
+                            target_init=target_init[11 - idx],
+                            track_running_stats=track_running_stats,
+                        )
+                else:
+                    norm = nn.BatchNorm1d(channels_reverse[idx + 1])
             decoder += [
                 _DecoderBlock(
                     in_channels=channels_reverse[idx],
@@ -303,6 +432,7 @@ class USleep(EEGModuleMixin, nn.Module):
                     upsample=max_pool_size,
                     with_skip_connection=with_skip_connection,
                     activation=activation,
+                    norm=norm,
                 )
             ]
         self.decoder = nn.Sequential(*decoder)
