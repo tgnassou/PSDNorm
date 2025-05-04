@@ -3,7 +3,7 @@
 #SBATCH --output=slurm_logs/lodo_norm_%A_%a.out
 #SBATCH --error=slurm_logs/lodo_norm_%A_%a.err
 
-#SBATCH -A wbb@v100
+#SBATCH -A chr@v100
 #SBATCH --ntasks=1
 #SBATCH -C v100
 #SBATCH --gres=gpu:1
@@ -21,9 +21,9 @@ cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
-FILTER_SIZE=(17)
+FILTER_SIZE=(9 17 33)
 MODEL_NAMES=("USleep")
-LEARNS=("bias" "target+bias" "none")
+LEARNS=("target")
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}
@@ -62,4 +62,5 @@ srun python run_LODO.py \
     --batch_size 64 \
     --compile \
     $( [ "$LEARN" = "bias" ] && echo "--bias_learnable" ) \
-    $( [ "$LEARN" = "target+bias" ] && echo "--bias_learnable --target_learnable" )
+    $( [ "$LEARN" = "target+bias" ] && echo "--bias_learnable --target_learnable" ) \
+    $( [ "$LEARN" = "target" ] && echo "--target_learnable" ) \
