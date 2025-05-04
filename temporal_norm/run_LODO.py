@@ -415,7 +415,7 @@ for epoch in range(n_epochs):
         "Acc:",
         round(np.mean(perf), 2),
         "LossVal:",
-        round(np.mean(val_loss), 2),
+        round(np.mean(val_loss), 4),
         "AccVal:",
         round(np.mean(perf_val), 2),
         "Time:",
