@@ -38,7 +38,8 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
 
     # Extract and process all segments in one batch
     segments = signal[..., indices]  # Shape: (..., num_segments, nperseg)
-    segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
+    if nperseg != 1:
+        segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
     windowed_segments = segments * window_vals  # Apply window
 
     # Compute FFT for all segments in parallel using real output to avoid complex dtype
@@ -70,15 +71,12 @@ class PSDNorm(nn.Module):
         n_channels=1,
         momentum=0.01,
         track_running_stats=True,
-        reg=1e-7,
+        reg=1e-5,
         bias_learnable=False,
         target_learnable=False,
         target_init=None,
         center=True,
     ):
-        # This layer is not always well compiled.
-        # The following two lines make sure it's run in eager mode if
-        # the compilation fails.
         import torch._dynamo
         torch._dynamo.config.suppress_errors = True
 
@@ -114,10 +112,16 @@ class PSDNorm(nn.Module):
                 "target",
                 None
             )
-            self.register_buffer(
-                "barycenter",
-                torch.empty(n_channels, filter_size // 2 + 1)
-            )
+            if target_init is not None:
+                self.register_buffer(
+                    "barycenter",
+                    target_init
+                )
+            else:
+                self.register_buffer(
+                    "barycenter",
+                    torch.empty(n_channels, filter_size // 2 + 1)
+                )
         self.first_iter = True
         self.track_running_stats = track_running_stats
         self.reg = reg
@@ -171,3 +175,27 @@ class PSDNorm(nn.Module):
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
         return x_filtered + self.bias.view(1, -1, 1) if self.bias_learnable else x_filtered
+
+
+if __name__ == "__main__":
+    psdnorm_layer = PSDNorm(
+        filter_size=1,
+        n_channels=2,
+        track_running_stats=False,
+        center=True,
+        target_init=torch.tensor([[1], [1]]),
+        reg=1e-5,
+    )
+
+    instancenorm_layer = nn.InstanceNorm1d(
+        num_features=2,
+        track_running_stats=False,
+        affine=False,
+        eps=1e-5,
+    )
+
+    x = torch.rand(2, 2, 3000)
+    y_psdnorm = psdnorm_layer(x)
+    y_instancenorm = instancenorm_layer(x)
+    assert torch.allclose(y_psdnorm, y_instancenorm, atol=1e-5), "Outputs are not equal!"
+    print("Outputs are equal!")
