@@ -12,6 +12,8 @@ class CNNTransformer(nn.Module):
         n_epochs=35,
         transformer_layers=4,
         filter_size=15,
+        affine=False,
+        track_running_stats=True,
         nhead=8,
         d_model=1024,
         dropout=0.1,
@@ -48,6 +50,8 @@ class CNNTransformer(nn.Module):
                         norm = PSDNorm(
                             filter_size=filter_size,
                             n_channels=out_c,
+                            affine=affine,
+                            track_running_stats=track_running_stats,
                         )
                 else:
                     norm = nn.BatchNorm1d(out_c)
