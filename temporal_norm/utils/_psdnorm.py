@@ -4,7 +4,15 @@ import torch.fft
 import torch.nn.functional as F
 
 
-def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axis=-1):
+def welch_psd(
+    signal,
+    fs=1.0,
+    nperseg=None,
+    noverlap=None,
+    window="hamming",
+    detrend="constant",
+    axis=-1,
+):
     if nperseg is None:
         nperseg = 256
     if noverlap is None:
@@ -27,40 +35,32 @@ def welch_psd(signal, fs=1.0, nperseg=None, noverlap=None, window="hamming", axi
 
     scaling = (window_vals * window_vals).sum()
 
-    # Calculate step size and number of segments
     step = nperseg - noverlap
     num_segments = (signal.shape[-1] - noverlap) // step
 
-    # Generate indices for all segments in one batch operation
     indices = torch.arange(nperseg, device=signal.device).unsqueeze(
         0
     ) + step * torch.arange(num_segments, device=signal.device).unsqueeze(1)
 
-    # Extract and process all segments in one batch
-    segments = signal[..., indices]  # Shape: (..., num_segments, nperseg)
-    if nperseg != 1:
-        segments = segments - segments.mean(dim=-1, keepdim=True)  # Detrend
-    windowed_segments = segments * window_vals  # Apply window
+    segments = signal[..., indices]
+    if detrend == "constant":
+        print("Detrending with constant")
+        segments = segments - segments.mean(dim=-1, keepdim=True)
+    windowed_segments = segments * window_vals
 
-    # Compute FFT for all segments in parallel using real output to avoid complex dtype
     segment_fft = torch.view_as_real(torch.fft.rfft(windowed_segments, dim=-1))
 
-    # Compute magnitude squared manually (Re^2 + Im^2) / scaling
     segment_psd = (segment_fft[..., 0] ** 2 + segment_fft[..., 1] ** 2) / (fs * scaling)
 
-    # Adjust for one-sided spectrum
     if nperseg % 2:
         segment_psd[..., 1:] *= 2
     else:
         segment_psd[..., 1:-1] *= 2
 
-    # Average over segments
     psd = segment_psd.mean(dim=-2)
 
-    # Compute frequency axis
     freqs = torch.fft.rfftfreq(nperseg, d=1 / fs)
 
-    # Reshape PSD to match the original dimensions
     return freqs, psd.transpose(axis, -1)
 
 
@@ -76,8 +76,10 @@ class PSDNorm(nn.Module):
         target_learnable=False,
         target_init=None,
         center=True,
+        detrend="constant",
     ):
         import torch._dynamo
+
         torch._dynamo.config.suppress_errors = True
 
         super(PSDNorm, self).__init__()
@@ -85,54 +87,46 @@ class PSDNorm(nn.Module):
         self.momentum = momentum
         self.bias_learnable = bias_learnable
         self.target_learnable = target_learnable
+        if filter_size == 1:
+            target_init = torch.tensor([[1], [1]])
+            track_running_stats = False
         if bias_learnable:
-            self.register_parameter(
-                "bias",
-                torch.nn.Parameter(torch.zeros(n_channels))
-            )
+            self.register_parameter("bias", torch.nn.Parameter(torch.zeros(n_channels)))
         else:
-            self.register_parameter(
-                "bias",
-                None
-            )
+            self.register_parameter("bias", None)
 
         if target_learnable:
             if target_init is not None:
                 self.register_parameter(
-                    "target",
-                    torch.nn.Parameter(torch.log(target_init))
+                    "target", torch.nn.Parameter(torch.log(target_init))
                 )
             else:
                 self.register_parameter(
                     "target",
-                    torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1))
+                    torch.nn.Parameter(torch.zeros(n_channels, filter_size // 2 + 1)),
                 )
         else:
-            self.register_parameter(
-                "target",
-                None
-            )
+            self.register_parameter("target", None)
             if target_init is not None:
-                self.register_buffer(
-                    "barycenter",
-                    target_init
-                )
+                self.register_buffer("barycenter", target_init)
             else:
                 self.register_buffer(
-                    "barycenter",
-                    torch.empty(n_channels, filter_size // 2 + 1)
+                    "barycenter", torch.empty(n_channels, filter_size // 2 + 1)
                 )
         self.first_iter = True
         self.track_running_stats = track_running_stats
         self.reg = reg
         self.center = center
+        self.detrend = detrend
 
     def _update_barycenter(self, barycenter):
         self.barycenter = (
-            (1 - self.momentum)**2 * self.barycenter
+            (1 - self.momentum) ** 2 * self.barycenter
             + self.momentum**2 * barycenter
-            + 2 * self.momentum * (1 - self.momentum) *
-            torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
+            + 2
+            * self.momentum
+            * (1 - self.momentum)
+            * torch.exp(0.5 * (torch.log(self.barycenter) + torch.log(barycenter)))
         )
 
     def forward(self, x):
@@ -144,7 +138,10 @@ class PSDNorm(nn.Module):
         if self.center:
             x = x - torch.mean(x, dim=-1, keepdim=True)
 
-        psd = welch_psd(x, window=None, nperseg=self.filter_size)[1] + self.reg
+        psd = (
+            welch_psd(x, window=None, nperseg=self.filter_size, detrend=self.detrend)[1]
+            + self.reg
+        )
 
         if self.training and self.track_running_stats and not self.target_learnable:
             weights = torch.ones_like(psd) / psd.shape[0]
@@ -174,7 +171,9 @@ class PSDNorm(nn.Module):
 
         if squeeze:
             x_filtered = x_filtered.unsqueeze(2)
-        return x_filtered + self.bias.view(1, -1, 1) if self.bias_learnable else x_filtered
+        return (
+            x_filtered + self.bias.view(1, -1, 1) if self.bias_learnable else x_filtered
+        )
 
 
 if __name__ == "__main__":
@@ -197,5 +196,7 @@ if __name__ == "__main__":
     x = torch.rand(2, 2, 3000)
     y_psdnorm = psdnorm_layer(x)
     y_instancenorm = instancenorm_layer(x)
-    assert torch.allclose(y_psdnorm, y_instancenorm, atol=1e-5), "Outputs are not equal!"
+    assert torch.allclose(
+        y_psdnorm, y_instancenorm, atol=1e-5
+    ), "Outputs are not equal!"
     print("Outputs are equal!")

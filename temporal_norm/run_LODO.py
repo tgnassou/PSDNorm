@@ -5,6 +5,7 @@ import copy
 from pathlib import Path
 import os
 from tqdm import tqdm
+import random
 
 import numpy as np
 import pandas as pd
@@ -45,8 +46,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
 parser.add_argument("--percent", type=float, default=0.01)
 parser.add_argument(
-    "--filter_size", type=int_or_none, help="An int or 'None'", default=None
+    "--filter_size", type=int, default=1
 )
+parser.add_argument("--norm", type=str, default="BatchNorm")
 parser.add_argument("--bias_learnable", action="store_true")
 parser.add_argument("--target_learnable", action="store_true")
 parser.add_argument("--batch_size", type=int, default=64)
@@ -61,6 +63,8 @@ parser.add_argument("--compile", action="store_true")
 parser.add_argument("--torchinductor", action="store_true")
 parser.add_argument("--results_path", type=str, default="results_LODO")
 parser.add_argument("--norm_apply_to", type=str, default="encoder")
+parser.add_argument("--detrend", action="store_true")
+parser.add_argument("--deterministic", action="store_true")
 
 
 args = parser.parse_args()
@@ -71,6 +75,7 @@ if args.torchinductor:
     )
 
 percentage = args.percent
+norm = args.norm
 filter_size = args.filter_size
 bias_learnable = args.bias_learnable
 target_learnable = args.target_learnable
@@ -82,7 +87,6 @@ balanced = args.balanced
 use_amp = args.use_amp
 num_workers = args.num_workers
 print_tqdm = args.print_tqdm
-seed = args.seed
 lr = args.lr
 if use_amp:
     print("BE CAREFUL! AMP is enabled.")
@@ -112,11 +116,35 @@ metadata = pd.read_parquet(
 print(f"Percentage: {percentage}")
 modules = []
 
+# Set experiment randomness
+seed = args.seed
 print(f"seed: {seed}")
-# HPs for the experiment
 torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+np.random.seed(seed)
+random.seed(seed)
 rng = check_random_state(seed)
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
+g_train = torch.Generator()
+g_train.manual_seed(seed)
+
+g_val = torch.Generator()
+g_val.manual_seed(seed)
+
+g_target = torch.Generator()
+g_target.manual_seed(seed)
+
+
+if args.deterministic:
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # dataloader
 n_windows = 35
@@ -134,16 +162,16 @@ in_chans = 2
 n_classes = 5
 input_size_samples = 3000
 
-if filter_size is None:
-    norm = "BatchNorm"
-
-elif filter_size == 1:
-    norm = "InstanceNorm"
-
+if norm == "BatchNorm":
+    filter_size = 0
+elif norm == "PSDNorm":
+    filter_size = filter_size
+elif norm == "InstanceNorm":
+    filter_size = 0
 else:
-    norm = "PSDNorm"
+    raise ValueError(f"Unknown normalization layer: {norm}")
 print(f"Model: {model_name}")
-print(f"Normalization Layer: {norm}")
+print(f"Normalization Layer: {norm} (filter_size: {filter_size})")
 
 # training
 n_epochs = 15
@@ -175,10 +203,8 @@ for dataset_name in dataset_sources:
 
     print(f"Dataset: {dataset_name}, n_subjects: {n_subjects}")
 
-    # Randomly sample the subjects to use
     subject_ids_dataset = rng.choice(subject_ids_all, n_subjects, replace=False)
 
-    # Split into train/val
     subject_ids_train[dataset_name], subject_ids_val[dataset_name] = train_test_split(
         subject_ids_dataset, test_size=0.2, random_state=seed
     )
@@ -204,6 +230,8 @@ dataloader_train = get_dataloader(
     randomize=True,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
     drop_last=True,
+    generator=g_train,
+    worker_init_fn=seed_worker,
 )
 
 # Source val dataloader
@@ -220,6 +248,8 @@ dataloader_val = get_dataloader(
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
     drop_last=True,
+    generator=g_val,
+    worker_init_fn=seed_worker,
 )
 
 # Target dataloader
@@ -236,6 +266,8 @@ dataloader_target = get_dataloader(
     randomize=False,
     target_transform=get_center_label if model_name == "DeepSleepNet" else None,
     drop_last=False,
+    generator=g_target,
+    worker_init_fn=seed_worker,
 )
 
 
@@ -270,10 +302,12 @@ if model_name == "USleep":
         with_skip_connection=True,
         n_outputs=n_classes,
         n_times=input_size_samples,
+        norm=norm,
         filter_size=filter_size,
         bias_learnable=bias_learnable,
         target_learnable=target_learnable,
         norm_apply_to=norm_apply_to,
+        detrend="constant" if args.detrend else False,
     )
 
 elif model_name == "CareSleepNet":
@@ -514,6 +548,7 @@ for subj_id, data in results_by_subject.items():
             "bias_learnable": bias_learnable,
             "target_learnable": target_learnable,
             "norm_apply_to": norm_apply_to,
+            "detrend": args.detrend,
             "n_subject_train": n_subject_tot,
             "n_subject_test": len(subject_id_target),
             "n_windows": n_windows,
