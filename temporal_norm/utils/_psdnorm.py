@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.fft
 import torch.nn.functional as F
+import time
 
 
 def welch_psd(
@@ -77,6 +78,7 @@ class PSDNorm(nn.Module):
         target_init=None,
         center=True,
         detrend="constant",
+        whitening=False,
     ):
         import torch._dynamo
 
@@ -87,9 +89,6 @@ class PSDNorm(nn.Module):
         self.momentum = momentum
         self.bias_learnable = bias_learnable
         self.target_learnable = target_learnable
-        if filter_size == 1:
-            target_init = torch.tensor([[1], [1]])
-            track_running_stats = False
         if bias_learnable:
             self.register_parameter("bias", torch.nn.Parameter(torch.zeros(n_channels)))
         else:
@@ -107,7 +106,12 @@ class PSDNorm(nn.Module):
                 )
         else:
             self.register_parameter("target", None)
-            if target_init is not None:
+            if whitening:
+                self.register_buffer(
+                    "barycenter", torch.ones(n_channels, filter_size // 2 + 1)
+                )
+                track_running_stats = False
+            elif target_init is not None:
                 self.register_buffer("barycenter", target_init)
             else:
                 self.register_buffer(
@@ -156,7 +160,6 @@ class PSDNorm(nn.Module):
             target = torch.exp(self.target)
         else:
             target = self.barycenter
-
         D = torch.sqrt(target) / torch.sqrt(psd)
         H = torch.fft.irfft(D, dim=-1, n=self.filter_size)
         H = torch.fft.fftshift(H, dim=-1)
@@ -179,22 +182,25 @@ class PSDNorm(nn.Module):
 if __name__ == "__main__":
     psdnorm_layer = PSDNorm(
         filter_size=1,
-        n_channels=2,
-        track_running_stats=False,
+        n_channels=5,
         center=True,
-        target_init=torch.tensor([[1], [1]]),
+        detrend=False,
+        whitening=True,
         reg=1e-5,
     )
 
     instancenorm_layer = nn.InstanceNorm1d(
-        num_features=2,
+        num_features=5,
         track_running_stats=False,
         affine=False,
         eps=1e-5,
     )
 
-    x = torch.rand(2, 2, 3000)
+    x = torch.rand(64, 5, 3000*35)
+    time_start = time.time()
     y_psdnorm = psdnorm_layer(x)
+    time_end = time.time()
+    print(f"PSDNorm time: {time_end - time_start:.4f} seconds")
     y_instancenorm = instancenorm_layer(x)
     assert torch.allclose(
         y_psdnorm, y_instancenorm, atol=1e-5

@@ -590,11 +590,13 @@ class USleep(EEGModuleMixin, nn.Module):
         n_times=None,
         norm="BatchNorm",
         filter_size=None,
+        filter_size_reduce=False,
         norm_apply_to="encoder", # DEPRECATED
         bias_learnable=False,
         target_learnable=False,
         track_running_stats=True,
         detrend=False,
+        whitening=False,
     ):
         super().__init__(
             n_outputs=n_outputs,
@@ -640,19 +642,22 @@ class USleep(EEGModuleMixin, nn.Module):
             if idx in [0, 1, 2]:
                 if filter_size == 0:
                     if norm == "BatchNorm":
-                        norm = nn.BatchNorm1d(channels[idx + 1])
+                        norm_layer = nn.BatchNorm1d(channels[idx + 1])
                     elif norm == "InstanceNorm":
-                        norm = nn.InstanceNorm1d(channels[idx + 1])
+                        norm_layer = nn.InstanceNorm1d(channels[idx + 1])
                     elif norm == "LayerNorm":
-                        norm = nn.LayerNorm(channels[idx + 1])
+                        norm_layer = nn.LayerNorm(channels[idx + 1])
                 else:
-                    filter_size_ = filter_size // 2**idx
+                    if filter_size_reduce:
+                        filter_size_ = filter_size // 2**idx
+                    else:
+                        filter_size_ = filter_size
                     if filter_size_ < 1:
                         filter_size_ = 1
                     if filter_size_ % 2 == 0:
                         filter_size_ += 1
 
-                    norm = PSDNorm(
+                    norm_layer = PSDNorm(
                         filter_size=filter_size_,
                         n_channels=channels[idx + 1],
                         bias_learnable=bias_learnable,
@@ -662,12 +667,13 @@ class USleep(EEGModuleMixin, nn.Module):
                         ),
                         track_running_stats=track_running_stats,
                         detrend=detrend,
+                        whitening=whitening,
                     )
             else:
-                norm = nn.BatchNorm1d(channels[idx + 1])
+                norm_layer = nn.BatchNorm1d(channels[idx + 1])
             encoder += [
                 _EncoderBlock(
-                    norm=norm,
+                    norm=norm_layer,
                     in_channels=channels[idx],
                     out_channels=channels[idx + 1],
                     kernel_size=time_conv_size,
@@ -693,30 +699,30 @@ class USleep(EEGModuleMixin, nn.Module):
         decoder = list()
         channels_reverse = channels[::-1]
         for idx in range(depth):
-            if filter_size == 0 or norm_apply_to == "encoder":
-                norm = nn.BatchNorm1d(channels_reverse[idx + 1])
-            else:
-                if idx in [9, 10, 11]:
-                    if filter_size == 1:
-                        norm = nn.InstanceNorm1d(channels_reverse[idx + 1])
-                    else:
-                        filter_size_ = filter_size // 2 ** (11 - idx)
-                        if filter_size_ < 1:
-                            filter_size_ = 1
-                        if filter_size_ % 2 == 0:
-                            filter_size_ += 1
+            # if filter_size == 0 or norm_apply_to == "encoder":
+            #     norm = nn.BatchNorm1d(channels_reverse[idx + 1])
+            # else:
+            #     if idx in [9, 10, 11]:
+            #         if filter_size == 1:
+            #             norm = nn.InstanceNorm1d(channels_reverse[idx + 1])
+            #         else:
+            #             filter_size_ = filter_size // 2 ** (11 - idx)
+            #             if filter_size_ < 1:
+            #                 filter_size_ = 1
+            #             if filter_size_ % 2 == 0:
+            #                 filter_size_ += 1
 
-                        norm = PSDNorm(
-                            filter_size=filter_size_,
-                            n_channels=channels_reverse[idx + 1],
-                            bias_learnable=bias_learnable,
-                            target_learnable=target_learnable,
-                            target_init=target_init[11 - idx],
-                            track_running_stats=track_running_stats,
-                            detrend=detrend,
-                        )
-                else:
-                    norm = nn.BatchNorm1d(channels_reverse[idx + 1])
+            #             norm = PSDNorm(
+            #                 filter_size=filter_size_,
+            #                 n_channels=channels_reverse[idx + 1],
+            #                 bias_learnable=bias_learnable,
+            #                 target_learnable=target_learnable,
+            #                 target_init=target_init[11 - idx],
+            #                 track_running_stats=track_running_stats,
+            #                 detrend=detrend,
+            #             )
+            #     else:
+            norm = nn.BatchNorm1d(channels_reverse[idx + 1])
             decoder += [
                 _DecoderBlock(
                     in_channels=channels_reverse[idx],
