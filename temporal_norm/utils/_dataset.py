@@ -192,6 +192,7 @@ def get_dataloader(
     target_transform=None,
     n_sequences_balanced=None,
     drop_last=False,
+    **kwargs,
 ):
     metadata = filter_metadata(metadata, dataset_names, subject_ids)
     dataset = MultiDomainDataset(metadata, dict_filters=dict_filters, target_transform=target_transform)
@@ -225,5 +226,6 @@ def get_dataloader(
         persistent_workers=persistent_workers,
         prefetch_factor=8,
         drop_last=drop_last,
+        **kwargs,
     )
     return dataloader

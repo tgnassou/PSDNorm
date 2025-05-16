@@ -27,34 +27,45 @@ cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
 DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
-NORMS=("PSDNorm" "BatchNorm")
-MODEL_NAMES=("USleep" "DeepSleepNet")
+FILTER_SIZE=(0 1 9)
+MODEL_NAMES=("USleep")
+SEEDS=(0 1 2)
 
 NUM_DATASETS=${#DATASETS[@]}
-NUM_NORMS=${#NORMS[@]}
+NUM_FILTERS=${#FILTER_SIZE[@]}
 NUM_MODELS=${#MODEL_NAMES[@]}
+NUM_SEEDS=${#SEEDS[@]}
 
-TOTAL_COMBINATIONS=$((NUM_DATASETS * NUM_NORMS * NUM_MODELS))
+TOTAL_COMBINATIONS=$((NUM_DATASETS * NUM_FILTERS * NUM_MODELS * NUM_SEEDS))
 
 if [ "$SLURM_ARRAY_TASK_ID" -ge "$TOTAL_COMBINATIONS" ]; then
     echo "Invalid SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}, max allowed is $((TOTAL_COMBINATIONS - 1))"
     exit 1
 fi
 
-# Decode task ID into dataset, norm, and model
+# Decode task ID into dataset, filter, model and percent
 DATASET_ID=$(( SLURM_ARRAY_TASK_ID % NUM_DATASETS ))
-NORM_ID=$(( (SLURM_ARRAY_TASK_ID / NUM_DATASETS) % NUM_NORMS ))
-MODEL_ID=$(( SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_NORMS) ))
+FILTER_ID=$(( (SLURM_ARRAY_TASK_ID / NUM_DATASETS) % NUM_FILTERS ))
+MODEL_ID=$(( (SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_FILTERS)) % NUM_MODELS ))
+SEED_ID=$(( SLURM_ARRAY_TASK_ID / (NUM_DATASETS * NUM_FILTERS * NUM_MODELS) ))
 
 DATASET="${DATASETS[$DATASET_ID]}"
-NORM="${NORMS[$NORM_ID]}"
+FILTER="${FILTER_SIZE[$FILTER_ID]}"
 MODEL_NAME="${MODEL_NAMES[$MODEL_ID]}"
+SEED="${SEEDS[$SEED_ID]}"
 
-echo "Running: Dataset=$DATASET | Norm=$NORM | Model=$MODEL_NAME"
+echo "Running: Dataset=$DATASET | Filter=$FILTER | Model=$MODEL_NAME | Seed=$SEED"
 
-## CODE EXECUTION
+# CODE EXECUTION
 srun python run_LODO.py \
     --dataset "$DATASET" \
-    --percent 1 \
-    --norm "$NORM" \
-    --model_name "$MODEL_NAME"
+    --model_name "$MODEL_NAME" \
+    --filter_size "$FILTER" \
+    --percent "0.2" \
+    --num_workers 10 \
+    $( [ "$MODEL_NAME" = "CNNTransformer" ] && echo "--lr 1e-4" ) \
+    $( [ "$MODEL_NAME" = "USleep" ] && echo "--lr 1e-3" ) \
+    --batch_size 64 \
+    --compile \
+    --torchinductor \
+    --seed "$SEED" \

@@ -12,8 +12,12 @@ class CNNTransformer(nn.Module):
         n_epochs=35,
         transformer_layers=4,
         filter_size=15,
-        affine=False,
-        track_running_stats=True,
+        filter_size_reduce=False,
+        bias_learnable=False,
+        target_learnable=False,
+        whitening=False,
+        norm="BatchNorm",
+        detrend=False,
         nhead=8,
         d_model=1024,
         dropout=0.1,
@@ -35,26 +39,34 @@ class CNNTransformer(nn.Module):
 
         layers, in_c = [], n_channels
         for i, (out_c, k, s) in enumerate(cnn_plan):
-            if filter_size is None:
-                norm = nn.BatchNorm1d(out_c)
-            else:
-                if i in [0, 2]:
-                    if filter_size == 1:
-                        norm = nn.InstanceNorm1d(out_c)
-                    else:
-                        if i != 0 and s > 1:
-                            filter_size = filter_size // s
-                        if filter_size % 2 == 0:
-                            filter_size += 1
-
-                        norm = PSDNorm(
-                            filter_size=filter_size,
-                            n_channels=out_c,
-                            affine=affine,
-                            track_running_stats=track_running_stats,
-                        )
+            if i in [0, 2]:
+                if filter_size == 0:
+                    if norm == "BatchNorm":
+                        norm_layer = nn.BatchNorm1d(out_c)
+                    elif norm == "InstanceNorm":
+                        norm_layer = nn.InstanceNorm1d(out_c)
+                    elif norm == "LayerNorm":
+                        norm_layer = nn.LayerNorm(out_c)
                 else:
-                    norm = nn.BatchNorm1d(out_c)
+                    # if filter_size_reduce:
+                    #     filter_size_ = filter_size // 2**i
+                    # else:
+                    filter_size_ = filter_size
+                    if filter_size_ < 1:
+                        filter_size_ = 1
+                    if filter_size_ % 2 == 0:
+                        filter_size_ += 1
+
+                    norm_layer = PSDNorm(
+                        filter_size=filter_size_,
+                        n_channels=out_c,
+                        bias_learnable=bias_learnable,
+                        target_learnable=target_learnable,
+                        detrend=detrend,
+                        whitening=whitening,
+                    )
+            else:
+                norm_layer = nn.BatchNorm1d(out_c)
 
             layers += [
                 nn.Conv1d(
@@ -64,7 +76,7 @@ class CNNTransformer(nn.Module):
                     padding=k // 2
                 ),
                 nn.ELU(),
-                norm,
+                norm_layer,
             ]
             in_c = out_c
         self.cnn = nn.Sequential(*layers)
