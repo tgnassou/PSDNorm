@@ -591,7 +591,7 @@ class USleep(EEGModuleMixin, nn.Module):
         norm="BatchNorm",
         filter_size=None,
         filter_size_reduce=False,
-        norm_apply_to="encoder", # DEPRECATED
+        norm_apply_to="encoder",  # DEPRECATED
         bias_learnable=False,
         target_learnable=False,
         track_running_stats=True,
@@ -616,9 +616,7 @@ class USleep(EEGModuleMixin, nn.Module):
         }
         # ensure filter_size == 0  if norm != PSDNorm
         if norm != "PSDNorm" and filter_size != 0:
-            raise ValueError(
-                "If norm is not PSDNorm, filter_size must be set to 0."
-            )
+            raise ValueError("If norm is not PSDNorm, filter_size must be set to 0.")
         max_pool_size = 2  # Hardcoded to avoid dimensional errors
         time_conv_size = int(np.round(time_conv_size_s * self.sfreq))
         if time_conv_size % 2 == 0:
@@ -646,7 +644,9 @@ class USleep(EEGModuleMixin, nn.Module):
                     elif norm == "InstanceNorm":
                         norm_layer = nn.InstanceNorm1d(channels[idx + 1])
                     elif norm == "LayerNorm":
-                        norm_layer = nn.LayerNorm(channels[idx + 1])
+                        norm_layer = nn.LayerNorm(
+                            normalized_shape=[channels[idx + 1], 105000 // 2**idx]
+                        )
                 else:
                     if filter_size_reduce:
                         filter_size_ = filter_size // 2**idx

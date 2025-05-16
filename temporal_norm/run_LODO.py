@@ -70,6 +70,7 @@ parser.add_argument("--deterministic", action="store_true")
 parser.add_argument("--eager", action="store_true")
 parser.add_argument("--whitening", action="store_true")
 parser.add_argument("--filter_size_reduce", action="store_true")
+parser.add_argument("--n_epochs", type=int, default=15)
 
 
 args = parser.parse_args()
@@ -182,7 +183,7 @@ print(f"Model: {model_name}")
 print(f"Normalization Layer: {norm} (filter_size: {filter_size})")
 
 # training
-n_epochs = 15
+n_epochs = args.n_epochs
 patience = 3
 assert (
     n_windows - n_windows_stride

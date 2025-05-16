@@ -10,9 +10,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=10
 #SBATCH --hint=nomultithread
-#SBATCH --qos=qos_gpu-t3
-#SBATCH --time=20:00:00
-#SBATCH --array=0-59
+#SBATCH --qos=qos_gpu-dev
+#SBATCH --time=02:00:00
+#SBATCH --array=0-7
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -26,10 +26,10 @@ module load pytorch-gpu/py3/2.6.0
 cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
-DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
+DATASETS=("ABC" "CCSHS")
 FILTER_SIZE=(1 9)
 MODEL_NAMES=("USleep")
-SEEDS=(0 1 2)
+SEEDS=(0 1)
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_FILTERS=${#FILTER_SIZE[@]}
@@ -69,3 +69,4 @@ srun python run_LODO.py \
     --batch_size 64 \
     --compile \
     --seed "$SEED" \
+    --torchinductor

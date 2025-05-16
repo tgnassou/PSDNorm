@@ -10,9 +10,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=10
 #SBATCH --hint=nomultithread
-#SBATCH --qos=qos_gpu-t3
-#SBATCH --time=20:00:00
-#SBATCH --array=0-59
+#SBATCH --qos=qos_gpu-dev
+#SBATCH --time=2:00:00
+#SBATCH --array=0-7
 
 module purge
 module load pytorch-gpu/py3/2.6.0
@@ -20,10 +20,10 @@ module load pytorch-gpu/py3/2.6.0
 cd $WORK/PSDNorm/temporal_norm
 
 ## PARAMETER LISTS
-DATASETS=("ABC" "CCSHS" "CFS" "CHAT" "HOMEPAP" "MASS" "MROS" "PhysioNet" "SHHS" "SOF")
+DATASETS=("ABC" "CCSHS")
 NORMS=("BatchNorm" "InstanceNorm")
 MODEL_NAMES=("USleep")
-SEEDS=(0 1 2)
+SEEDS=(0 1)
 
 NUM_DATASETS=${#DATASETS[@]}
 NUM_NORMS=${#NORMS[@]}
@@ -48,7 +48,7 @@ NORM="${NORMS[$NORM_ID]}"
 MODEL_NAME="${MODEL_NAMES[$MODEL_ID]}"
 SEED="${SEEDS[$SEED_ID]}"
 
-echo "Running: Dataset=$DATASET | Filter=$FILTER | Model=$MODEL_NAME | Seed=$SEED"
+echo "Running: Dataset=$DATASET | Norm=$NORM | Model=$MODEL_NAME | Seed=$SEED"
 
 # CODE EXECUTION
 srun python run_LODO.py \
@@ -62,4 +62,6 @@ srun python run_LODO.py \
     $( [ "$MODEL_NAME" = "USleep" ] && echo "--lr 1e-3" ) \
     --batch_size 64 \
     --compile \
-    --seed "$SEED"
+    --seed "$SEED" \
+    --torchinductor
+

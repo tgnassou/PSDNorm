@@ -191,8 +191,6 @@ if __name__ == "__main__":
 
     instancenorm_layer = nn.InstanceNorm1d(
         num_features=5,
-        track_running_stats=False,
-        affine=False,
         eps=1e-5,
     )
 
