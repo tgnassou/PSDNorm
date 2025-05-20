@@ -32,23 +32,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # %%
-def int_or_none(value):
-    if value.lower() == "none":
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"Expected an integer or 'None', got '{value}'"
-        )
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="ABC")
-parser.add_argument("--percent", type=float, default=0.01)
-parser.add_argument(
-    "--filter_size", type=int, default=1
-)
+parser.add_argument("--n_subjects", type=int, default=40)
+parser.add_argument("--filter_size", type=int, default=1)
 parser.add_argument("--norm", type=str, default="BatchNorm")
 parser.add_argument("--bias_learnable", action="store_true")
 parser.add_argument("--target_learnable", action="store_true")
@@ -80,7 +68,7 @@ if args.torchinductor:
         "/lustre/fswork/projects/rech/chr/ujq48hj/.cache/"
     )
 
-percentage = args.percent
+n_subjects = args.n_subjects
 norm = args.norm
 filter_size = args.filter_size
 bias_learnable = args.bias_learnable
@@ -122,7 +110,7 @@ metadata = pd.read_parquet(
 
 # %%
 
-print(f"Percentage: {percentage}")
+print(f"N_subjects: {n_subjects}")
 modules = []
 
 # Set experiment randomness
@@ -177,6 +165,8 @@ elif norm == "PSDNorm":
     filter_size = filter_size
 elif norm == "InstanceNorm":
     filter_size = 0
+elif norm == "LayerNorm":
+    filter_size = 0
 else:
     raise ValueError(f"Unknown normalization layer: {norm}")
 print(f"Model: {model_name}")
@@ -206,13 +196,12 @@ n_subject_tot = 0
 print("Datasets used for training and validation:")
 for dataset_name in dataset_sources:
     subject_ids_all = subject_ids[dataset_name]
-    n_subjects = int(percentage * len(subject_ids_all))
-    n_subjects = max(n_subjects, 2)
-    n_subject_tot += n_subjects
+    n_subjects_ = min(n_subjects, len(subject_ids_all))
+    n_subject_tot += n_subjects_
 
-    print(f"Dataset: {dataset_name}, n_subjects: {n_subjects}")
+    print(f"Dataset: {dataset_name}, n_subjects: {n_subjects_}")
 
-    subject_ids_dataset = rng.choice(subject_ids_all, n_subjects, replace=False)
+    subject_ids_dataset = rng.choice(subject_ids_all, n_subjects_, replace=False)
 
     subject_ids_train[dataset_name], subject_ids_val[dataset_name] = train_test_split(
         subject_ids_dataset, test_size=0.2, random_state=seed
@@ -338,10 +327,17 @@ elif model_name == "CNNTransformer":
         nhead=8,
         d_model=768,
         dropout=0.1,
+        filter_size_reduce=filter_size_reduce,
+        bias_learnable=bias_learnable,
+        target_learnable=target_learnable,
+        norm=norm,
+        detrend="constant" if args.detrend else False,
+        whitening=whitening,
     )
     print(f"CNNTransformer: CNN trainable params: {count_params(model.cnn):,}")
     print(
-        f"CNNTransformer: Transformer trainable params: {count_params(model.transformer):,}"
+        "CNNTransformer: Transformer trainable params: "
+        f"{count_params(model.transformer):,}"
     )
 
 num_trainable_params = count_params(model)
@@ -503,7 +499,8 @@ folder_history = folder / "history"
 folder_history.mkdir(parents=True, exist_ok=True)
 history_path = (
     folder_history
-    / f"history_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pkl"
+    / f"history_{model_name}_{norm}_{filter_size}_{n_subjects}"
+    f"_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pkl"
 )
 df_history = pd.DataFrame(history)
 df_history.to_pickle(history_path)
@@ -513,13 +510,15 @@ folder_model.mkdir(parents=True, exist_ok=True)
 torch.save(
     best_model,
     folder_model
-    / f"models_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pt",
+    / f"models_{model_name}_{norm}_{filter_size}_{n_subjects}"
+    f"_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pt",
 )
 # save optimizer
 torch.save(
     optimizer.state_dict(),
     folder_model
-    / f"optimizer_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pt",
+    / f"optimizer_{model_name}_{norm}_{filter_size}_{n_subjects}"
+    f"_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pt",
 )
 
 results = []
@@ -527,7 +526,8 @@ folder_pickle = folder / "pickles"
 folder_pickle.mkdir(parents=True, exist_ok=True)
 results_path = (
     folder_pickle
-    / f"results_{model_name}_{norm}_{filter_size}_{percentage}_LODO_{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pkl"
+    / f"results_{model_name}_{norm}_{filter_size}_{n_subjects}_LODO_"
+    f"{dataset_target}_bias_{bias_learnable}_target_{target_learnable}_{seed}.pkl"
 )
 
 # Accumulate predictions and targets on GPU per subject
@@ -590,7 +590,7 @@ for subj_id, data in results_by_subject.items():
             "num_workers": num_workers,
             "n_epochs": n_epochs,
             "patience": patience,
-            "percentage": percentage,
+            "n_subjects": n_subjects,
             "model_name": model_name,
             "y_pred": y_pred_tensor.cpu().numpy().flatten(),
             "y_true": y_true_tensor.cpu().numpy().flatten(),
