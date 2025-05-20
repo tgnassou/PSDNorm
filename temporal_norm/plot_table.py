@@ -1,99 +1,107 @@
 # %%
-
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.metrics import accuracy_score, f1_score, balanced_accuracy_score
-import torch
-# add statisical test
-from statannot import add_stat_annotation
+from sklearn.metrics import balanced_accuracy_score
+
+from joblib import Parallel, delayed
+
+
+def get_name(x):
+    if x["filter_size"] == 0:
+        return x["norm"]
+    else:
+        return f"PSDNorm(F={x['filter_size']})"
+
+
+def compute_bacc(row):
+    return balanced_accuracy_score(row.y_true, row.y_pred)
+
 
 # %%
-fnames = list(Path("results/pickle_table").glob("results*.pkl"))
+fnames = list(Path("balanced").glob("results*.pkl"))
 df = pd.concat([pd.read_pickle(fname) for fname in fnames], axis=0)
-df["f1"] = df.apply(lambda x: f1_score(x.y_true, x.y_pred, average="weighted"), axis=1)
+df = df[
+    [
+        "dataset",
+        "seed",
+        "subject",
+        "n_subjects",
+        "y_true",
+        "y_pred",
+        "filter_size",
+        "norm",
+        "model_name",
+    ]
+]
 
 # %%
-df_tab = df.copy()
-df_tab = df_tab.groupby(["dataset", "dataset_type", "tma", "subject",]).f1.mean().reset_index()
-df_tab = df_tab.groupby(['dataset', 'dataset_type', 'tma']).agg({"f1": ["mean", "std"]})
 
-# df_mean = df_tab.groupby(["dataset_type", "tma"]).mean().reset_index()
-# df_mean["dataset"] = df_mean["dataset_type"]
-# df_tot = pd.concat([df_tab, df_mean], axis=0)
+df["norm"] = df.apply(get_name, axis=1)
+
+df["bacc"] = Parallel(n_jobs=-1)(
+    delayed(compute_bacc)(row) for row in df.itertuples(index=False)
+)
+# %%
+df_tab = df.query("n_subjects in [5730, 400]").copy()
+
+df_tab = (
+    df_tab.groupby(["dataset", "norm", "seed", "n_subjects"]).bacc.mean().reset_index()
+)
+mean_tab = df_tab.groupby(["norm", "n_subjects", "seed"]).bacc.mean().reset_index()
+df_tab = df_tab.groupby(
+    [
+        "dataset",
+        "n_subjects",
+        "norm",
+    ]
+).agg({"bacc": ["mean", "std"]})
+
+# add mean tab as a dataset
+mean_tab = mean_tab.groupby(["norm", "n_subjects"]).agg({"bacc": ["mean", "std"]})
+mean_tab = mean_tab.reset_index()
+mean_tab["dataset"] = "Mean"
+mean_tab["mean_std"] = mean_tab.apply(
+    lambda x: f"{x.bacc['mean']*100:.2f} $\pm$ {x.bacc['std']*100:.2f}", axis=1  # noqa
+)
 df_tab = df_tab.reset_index()
 df_tab["mean_std"] = df_tab.apply(
-    lambda x: f"{x.f1['mean']:.2f} $\pm$ {x.f1['std']:.2f}", axis=1 # noqa
+    lambda x: f"{x.bacc['mean']*100:.2f} $\pm$ {x.bacc['std']*100:.2f}",
+    axis=1,  # noqa
 )
 
-# %%
-# bold the best result per dataset
-idx_to_bold = df_tab.groupby(["dataset_type", "dataset"]).f1.idxmax().f1["mean"].to_list()
+df_tab = pd.concat([df_tab, mean_tab], axis=0, ignore_index=True)
+
+idx_to_bold = df_tab.groupby(
+    ["n_subjects", "dataset"]
+).bacc.idxmax().bacc["mean"].to_list()
 for idx in idx_to_bold:
     value = df_tab.loc[idx, "mean_std"].values[0]
     df_tab.loc[idx, "mean_std"] = f"\\textbf{{{value}}}"
-# %%
-df_tab["Score"] = "F1 Score"
-df_tab = df_tab.pivot_table(index=["dataset_type", "dataset"], columns=["Score", "tma"], values="mean_std", aggfunc="first")
-df_tab = df_tab.iloc[:, [1, 0, 3, 2]]
 
-# %%
-df_tab_20 = df.copy()
-
-df_tab_20 = df_tab_20.groupby(["dataset", "dataset_type", "tma", "subject"]).f1.mean().reset_index()
-df_tab_20_base = df_tab_20.query("tma == 'no_tma'").reset_index()
-df_tab_20_subject = df_tab_20_base.groupby(["dataset_type", "dataset"]).f1.apply(lambda x: x.nsmallest(int(0.2 * len(x)))).reset_index()
-df_tab_20_base = df_tab_20_base.iloc[df_tab_20_subject.level_2.to_list()]
-
-df_tab_20 = df_tab_20.merge(df_tab_20_base, on=["dataset_type", "dataset", "subject"])
-df_tab_20 = df_tab_20[["dataset_type", "dataset", "subject", "tma_x", "f1_x",]]
-df_tab_20.columns = ["dataset_type", "dataset", "subject", "tma", "f1"]
-df_tab_20 = df_tab_20.groupby(['dataset', 'dataset_type', 'tma']).agg({"f1": ["mean", "std"]})
-
-# df_mean_20 = df_tab_20.groupby(["dataset_type", "tma"]).mean().reset_index()
-# df_mean_20["dataset"] = df_mean_20["dataset_type"]
-# df_tab_20 = df_tab_20.reset_index()
-# df_tot_20 = pd.concat([df_tab_20, df_mean_20], axis=0)
-df_tab_20 = df_tab_20.reset_index()
-df_tab_20.fillna(0, inplace=True)
-df_tab_20["mean_std"] = df_tab_20.apply(
-    lambda x: f"{x.f1['mean']:.2f} $\pm$ {x.f1['std']:.2f}", axis=1 # noqa
+df_tab["Score"] = "bacc Score"
+df_tab = df_tab.pivot_table(
+    index=["n_subjects", "dataset"],
+    columns=["norm"],
+    values="mean_std",
+    aggfunc="first",
 )
 
-# %%
-idx_to_bold = df_tab_20.groupby(["dataset_type", "dataset"]).f1.idxmax().f1["mean"].to_list()
-for idx in idx_to_bold:
-    value = df_tab_20.loc[idx, "mean_std"].values[0]
-    df_tab_20.loc[idx, "mean_std"] = f"\\textbf{{{value}}}"
+new_order = [
+    "BatchNorm",
+    "LayerNorm",
+    "InstanceNorm",
+    "PSDNorm(F=5)",
+    "PSDNorm(F=9)",
+    "PSDNorm(F=17)",
+]
 
-# %%
-df_tab_20["Score"] = "$\Delta$ F1@20\% Score"
-df_tab_20 = df_tab_20.pivot_table(index=["dataset_type", "dataset"], columns=["Score", "tma"], values="mean_std", aggfunc="first")
-df_tab_20 = df_tab_20.iloc[:, [1, 0, 3, 2]]
-# %%
-# concatene and add index to the table
-df_final = pd.concat([df_tab, df_tab_20], axis=1)
+df_tab = df_tab.loc[:, pd.IndexSlice[:, new_order]]
 
-# %%
-lat_tab = df_final.to_latex(
+
+lat_tab = df_tab.to_latex(
     escape=False,
     multicolumn_format="c",
     multirow=True,
-    column_format="|l|l|cccc|cccc|",
 )
 
-# %%
-lat_tab = lat_tab.replace("no_tma", "BatchNorm")
-lat_tab = lat_tab.replace("tma_bary_16", "CMLN")
-lat_tab = lat_tab.replace("InstantNorm", "InstanceNorm")
-lat_tab = lat_tab.replace("toprule", "hline")
-lat_tab = lat_tab.replace("midrule", "hline")
-lat_tab = lat_tab.replace("multirow[t]{7}{*}{source}", "multirow{7}{*}{\\rotatebox[origin=c]{90}{Internal-Test}}")
-lat_tab = lat_tab.replace("multirow[t]{3}{*}{target}", "multirow{3}{*}{\\rotatebox[origin=c]{90}{External}}")
-lat_tab = lat_tab.replace("source", "Mean")
-lat_tab = lat_tab.replace("target", "Mean")
-# %%
 print(lat_tab)
-# %%

@@ -1,77 +1,121 @@
 # %%
 import seaborn as sns
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.metrics import f1_score
+from sklearn.metrics import balanced_accuracy_score
+
+from joblib import Parallel, delayed
+
+
+def get_name(x):
+    if x["filter_size"] == 0:
+        return x["norm"]
+    else:
+        return f"PSDNorm(F={x['filter_size']})"
+
+
+def compute_bacc(row):
+    return balanced_accuracy_score(row.y_true, row.y_pred)
+
 
 # %%
-fnames = list(Path("results/pickle_percentage").glob("results_*.pkl"))
+fnames = list(Path("balanced").glob("results*.pkl"))
 df = pd.concat([pd.read_pickle(fname) for fname in fnames], axis=0)
-df["f1"] = df.apply(lambda x: f1_score(x.y_true, x.y_pred, average="weighted"), axis=1)
+df = df[
+    [
+        "dataset",
+        "seed",
+        "subject",
+        "n_subjects",
+        "y_true",
+        "y_pred",
+        "filter_size",
+        "norm",
+        "model_name",
+    ]
+]
 
 # %%
-df["tma"] = df["tma"].replace("no_tma", "BatchNorm")
-df["tma"] = df["tma"].replace("tma_bary", "CMLN")
-df["tma"] = df["tma"].replace("tma_bary_64", "CMLN")
-df["tma"] = df["tma"].replace("tma_bary_16", "CMLN")
-df["tma"] = df["tma"].replace("tma_geo_16", "CMLN")
-df["tma"] = df["tma"].replace("tma_geo_32", "CMLN")
-df["tma"] = df["tma"].replace("tma_geo_64", "CMLN")
 
-# %%
-df["f_size"] = df["filter_size"].apply(lambda x: 0 if x is None else x)
+df["norm"] = df.apply(get_name, axis=1)
 
-# %%
-df_test = df.reset_index().query("dataset_type == 'target'")
-# %%
-# normalize f1 score by the maximum f1 score per dataset
-# for dataset in ["CHAT", "SOF", "MASS"]:
-#     df_dataset = df_test.query(f"dataset == '{dataset}'")
-#     max_f1 = df_dataset.f1.max()
-#     min_f1 = df_dataset.f1.min()
-#     df_test.loc[df_dataset.index, "f1_normalized"] = (df_dataset.f1 - min_f1) / (max_f1 - min_f1)
-# %%
-fig, ax = plt.subplots(1, 1, figsize=(4.5, 3))
-df_plot = df.groupby(["dataset_type", "tma", "percentage", "f_size",]).f1.mean().reset_index()
-df_target = df_plot.query("dataset_type == 'target'")
-sns.lineplot(
-    data=df_target.query("tma == 'BatchNorm'"),
-    x="percentage",
-    y="f1",
-    ax=ax,
-    palette=sns.color_palette("colorblind")[1:],
-    hue="f_size",
-    linewidth=3,
-    linestyle="--",
-    alpha=0.7,
+df["bacc"] = Parallel(n_jobs=-1)(
+    delayed(compute_bacc)(row) for row in df.itertuples(index=False)
 )
-handles_batch, _ = ax.get_legend_handles_labels()
-# reorder the lines
-palette = [sns.color_palette("Blues_d", n_colors=5)[4], sns.color_palette("Blues_d", n_colors=5)[2], sns.color_palette("Blues_d", n_colors=5)[0]]
-sns.lineplot(
-    data=df_target.query("tma != 'BatchNorm'"),
-    x="percentage",
-    y="f1",
-    hue="f_size",
-    palette=palette,
-    ax=ax,
-    linewidth=3,
-    alpha=0.7,
+# %%
+df_plot = df.query("norm not in ['PSDNorm(F=1)', 'LayerNorm']").copy()
+df_plot = (
+    df_plot.groupby(
+        [
+            "norm",
+            "seed",
+            "n_subjects",
+            "dataset",
+        ]
+    )
+    .agg(bacc=("bacc", "mean"))
+    .reset_index()
 )
-plt.tight_layout()
-ax.set_xlabel("Percentage of training subjects")
-ax.set_ylabel("F1")
-handles, labels = ax.get_legend_handles_labels()
-new_labels = ["BatchNorm", "PSDNorm(16)", "PSDNorm(32)", "PSDNorm(64)"]
-ax.legend(handles=handles, labels=new_labels,)
-ax.grid(True)
+df_plot = (
+    df_plot.groupby(
+        [
+            "norm",
+            "seed",
+            "n_subjects",
+        ]
+    )
+    .agg(bacc=("bacc", "mean"))
+    .reset_index()
+)
+
+fig, (ax1, ax2) = plt.subplots(
+    1, 2, sharey=True, figsize=(5, 2.5), gridspec_kw={"width_ratios": [3, 1]}
+)
+sns.lineplot(
+    data=df_plot,
+    x="n_subjects",
+    y="bacc",
+    hue="norm",
+    palette="tab10",
+    linewidth=2,
+    err_style=None,
+    alpha=0.8,
+    ax=ax1,
+)
+ax1.set_xticks([40, 100, 200, 400])
+ax1.set_xticklabels([r"$\sim$400", r"$\sim$1000", r"$\sim$2000", r"$\sim$4000"])
+ax1.set_ylim(0.735, 0.795)
+ax1.set_xlim(0, 405)
+ax1.set_xlabel("Number of subjects")
+ax1.grid(axis="y", alpha=0.6)
+ax1.set_ylabel("Balanced Accuracy Score")
+sns.lineplot(
+    data=df_plot,
+    x="n_subjects",
+    y="bacc",
+    hue="norm",
+    palette="tab10",
+    linewidth=2,
+    err_style=None,
+    alpha=0.8,
+    ax=ax2,
+    legend=False,
+)
+ax2.grid(axis="y", alpha=0.6)
+ax2.set_xticks([5730])
+ax2.set_xlim(4000, 6000)
+ax2.set_xticklabels(["All subjects"])
+ax2.set_ylim(0.735, 0.795)
+ax2.set_xlabel("")
+d = 0.015  # size of diagonal break marker
+kwargs = dict(transform=ax1.transAxes, color="k", clip_on=False)
+ax1.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # top-right diagonal
+
+kwargs.update(transform=ax2.transAxes)  # switch to the right axes
+ax2.plot((-d, +d), (-d, +d), **kwargs)  # top-left diagonal
+ax2.plot((-d, +d), (1 - d, 1 + d), **kwargs)  # bottom-left diagonal
+
 sns.despine()
-ax.set_yticks(np.arange(0.65, 0.85, 0.05))
-ax.set_xticklabels(["0%", "20%", "40%", "60%", "80%", "100%",])
-fig.savefig("results_percentage/figures/number_subjects.pdf", bbox_inches="tight")
-# %%
-df_target.pivot_table(index="tma", columns=["n_subject_train", "dataset"], values="f1", aggfunc="mean")
-
-# %%
+plt.tight_layout()
+fig.savefig("figures/LODO_lineplot.pdf", bbox_inches="tight")
