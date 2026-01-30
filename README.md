@@ -1,6 +1,6 @@
 # PSDNorm: Test Time Temporal Normalization for Deep Learning on EEG Signals
 
-This repository contains the code for the paper "PSDNorm: Test Time Temporal Normalization for Deep Learning on Sleep Staging" by Anonymised.
+This repository contains the code for the paper "PSDNorm: Test Time Temporal Normalization for Deep Learning on Sleep Staging" by Theo Gnassounou, Antoine Collas, Remi Flamary and Alexandre Gramfort published at ICLR 2026.
 
 ## Downloading the datasets
 
