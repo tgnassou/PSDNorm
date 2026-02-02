@@ -1,6 +1,6 @@
 # PSDNorm: Test Time Temporal Normalization for Deep Learning on EEG Signals
 
-This repository contains the code for the paper "PSDNorm: Test Time Temporal Normalization for Deep Learning on Sleep Staging" by Theo Gnassounou, Antoine Collas, Remi Flamary and Alexandre Gramfort published at ICLR 2026.
+This repository contains the code for the paper ["PSDNorm: Test Time Temporal Normalization for Deep Learning on Sleep Staging"](https://arxiv.org/abs/2503.04582) by Theo Gnassounou, Antoine Collas, Remi Flamary and Alexandre Gramfort published at ICLR 2026.
 
 ## Downloading the datasets
 
@@ -94,3 +94,16 @@ python temporal_norm/plot_sensitivity.py
 ```
 
 for the lineplot of the paper.
+
+## To cite the paper
+
+If you find this work useful in your research, please consider citing:
+
+```
+@inproceedings{gnassounou2026psdnorm,
+  title     = {PSDNorm: Temporal Normalization for Deep Learning in Sleep Staging},
+  author    = {Gnassounou, Théo and Collas, Antoine and Flamary, Rémi and Gramfort, Alexandre},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2026}
+}
+```
